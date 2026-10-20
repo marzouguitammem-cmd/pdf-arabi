@@ -15,8 +15,10 @@ class App : Application() {
         PDFBoxResourceLoader.init(applicationContext)
 
         // The whole interface is Arabic and right-to-left, whatever the phone language is.
-        if (AppCompatDelegate.getApplicationLocales().isEmpty) {
-            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("ar-TN"))
+        val wanted = Prefs.uiLang
+        val current = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+        if (!current.startsWith(wanted.substring(0, 2))) {
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(wanted))
         }
         AppCompatDelegate.setDefaultNightMode(Prefs.themeMode)
 

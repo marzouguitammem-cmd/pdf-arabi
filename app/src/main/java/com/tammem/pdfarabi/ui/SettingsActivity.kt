@@ -54,11 +54,11 @@ class SettingsActivity : AppCompatActivity() {
             })
         }
         val lang = findViewById<MaterialButtonToggleGroup>(R.id.langGroup)
-        val curLang = AppCompatDelegate.getApplicationLocales().toLanguageTags()
-        lang.check(if (curLang.startsWith("fr")) R.id.langFr else R.id.langAr)
+        lang.check(if (Prefs.uiLang.startsWith("fr")) R.id.langFr else R.id.langAr)
         lang.addOnButtonCheckedListener { _, id, checked ->
             if (!checked) return@addOnButtonCheckedListener
             val tag = if (id == R.id.langFr) "fr" else "ar-TN"
+            Prefs.uiLang = tag
             val now = AppCompatDelegate.getApplicationLocales().toLanguageTags()
             if (!now.startsWith(tag.substring(0, 2))) {
                 AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))

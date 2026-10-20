@@ -49,6 +49,11 @@ object Prefs {
         get() = bool("perm_asked", false)
         set(v) = sp.edit().putBoolean("perm_asked", v).apply()
 
+    /** Interface language tag ("ar-TN" or "fr"). */
+    var uiLang: String
+        get() = str("ui_lang", "ar-TN")
+        set(v) = sp.edit().putString("ui_lang", v).apply()
+
     var wordView: String
         get() = str("word_view", "page")
         set(v) = sp.edit().putString("word_view", v).apply()
