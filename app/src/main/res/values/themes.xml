@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.PdfArabi" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/md_primary</item>
+        <item name="colorOnPrimary">@color/md_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/md_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/md_onPrimaryContainer</item>
+        <item name="colorSecondary">@color/md_secondary</item>
+        <item name="colorOnSecondary">@color/md_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/md_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/md_onSecondaryContainer</item>
+        <item name="colorTertiary">@color/md_tertiary</item>
+        <item name="colorOnTertiary">@color/md_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/md_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/md_onTertiaryContainer</item>
+        <item name="colorError">@color/md_error</item>
+        <item name="colorOnError">@color/md_onError</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="colorOnBackground">@color/md_onBackground</item>
+        <item name="colorSurface">@color/md_surface</item>
+        <item name="colorOnSurface">@color/md_onSurface</item>
+        <item name="colorSurfaceVariant">@color/md_surfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/md_onSurfaceVariant</item>
+        <item name="colorOutline">@color/md_outline</item>
+        <item name="colorOutlineVariant">@color/md_outlineVariant</item>
+        <item name="colorSurfaceContainerLowest">@color/md_surfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/md_surfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/md_surfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/md_surfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/md_surfaceContainerHighest</item>
+        <item name="colorSurfaceInverse">@color/md_inverseSurface</item>
+        <item name="colorOnSurfaceInverse">@color/md_inverseOnSurface</item>
+        <item name="colorPrimaryInverse">@color/md_inversePrimary</item>
+
+        <item name="android:fontFamily">@font/tajawal</item>
+        <item name="fontFamily">@font/tajawal</item>
+        <item name="textAppearanceDisplayLarge">@style/Text.DisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/Text.DisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/Text.DisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/Text.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/Text.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/Text.HeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/Text.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/Text.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/Text.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/Text.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/Text.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/Text.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/Text.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/Text.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/Text.LabelSmall</item>
+
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.PdfArabi.BottomSheet</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+
+    <style name="ThemeOverlay.PdfArabi.BottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:fontFamily">@font/tajawal</item>
+        <item name="fontFamily">@font/tajawal</item>
+    </style>
+
+    <style name="Theme.PdfArabi.FullScreenDialog" parent="Theme.PdfArabi">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@color/md_surface</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.PdfArabi.Dialog</item>
+    </style>
+
+    <style name="Animation.PdfArabi.Dialog" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@android:anim/fade_in</item>
+        <item name="android:windowExitAnimation">@android:anim/fade_out</item>
+    </style>
+
+    <style name="Text.DisplayLarge" parent="TextAppearance.Material3.DisplayLarge"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.DisplayMedium" parent="TextAppearance.Material3.DisplayMedium"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.HeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.TitleLarge" parent="TextAppearance.Material3.TitleLarge"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.TitleMedium" parent="TextAppearance.Material3.TitleMedium"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.TitleSmall" parent="TextAppearance.Material3.TitleSmall"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.BodyLarge" parent="TextAppearance.Material3.BodyLarge"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.BodyMedium" parent="TextAppearance.Material3.BodyMedium"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.BodySmall" parent="TextAppearance.Material3.BodySmall"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+    <style name="Text.LabelLarge" parent="TextAppearance.Material3.LabelLarge"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.LabelMedium" parent="TextAppearance.Material3.LabelMedium"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item><item name="android:textStyle">bold</item></style>
+    <style name="Text.LabelSmall" parent="TextAppearance.Material3.LabelSmall"><item name="android:fontFamily">@font/tajawal</item><item name="fontFamily">@font/tajawal</item></style>
+</resources>

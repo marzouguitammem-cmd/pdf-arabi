@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">محرّر PDF</string>
+    <string name="open_file">فتح ملف</string>
+    <string name="tab_recent">الأخيرة</string>
+    <string name="tab_all">كل الملفات</string>
+    <string name="tab_fav">المفضّلة</string>
+    <string name="search_files">ابحث على ملف…</string>
+    <string name="settings">الإعدادات</string>
+    <string name="edit">تعديل</string>
+    <string name="search_in_file">ابحث في الملف…</string>
+    <string name="tool_scan">مسح ضوئي</string>
+    <string name="tool_images">صور إلى PDF</string>
+    <string name="tool_merge">دمج ملفات</string>
+    <string name="tool_new">ملف جديد</string>
+    <string name="perm_title">خلّي التطبيق يشوف ملفاتك</string>
+    <string name="perm_body">باش نورّيك ملفات PDF الكل اللي في تليفونك (واتساب، التحميلات…) ونسجّل التعديلات في نفس الملف، لازمك تعطي الإذن مرة وحدة برك.</string>
+    <string name="perm_button">أعطي الإذن</string>
+    <string name="empty_recent">ما فتحت حتى ملف للتوّا.\nاضغط على «فتح ملف» ولا اختار من «كل الملفات».</string>
+    <string name="empty_all">ما لقيت حتى ملف PDF في التليفون.</string>
+    <string name="empty_fav">اضغط على النجمة حذا أي ملف باش يظهر هوني.</string>
+</resources>
