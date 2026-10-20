@@ -45,17 +45,24 @@ object Storage {
         return clean.ifEmpty { "ملف" }
     }
 
-    fun withPdf(name: String): String = if (name.lowercase().endsWith(".pdf")) name else "$name.pdf"
+    fun withPdf(name: String): String = withExt(name, "pdf")
 
-    fun baseName(name: String): String = name.removeSuffix(".pdf").removeSuffix(".PDF")
+    fun withExt(name: String, ext: String): String = if (name.lowercase().endsWith(".$ext")) name else "$name.$ext"
+
+    fun baseName(name: String): String {
+        val l = name.lowercase()
+        for (e in listOf(".pdf", ".docx", ".doc")) if (l.endsWith(e)) return name.dropLast(e.length)
+        return name
+    }
 
     fun uniqueFile(dir: File, fileName: String): File {
         var f = File(dir, fileName)
         if (!f.exists()) return f
-        val base = baseName(fileName)
+        val base = fileName.substringBeforeLast('.')
+        val ext = fileName.substringAfterLast('.', "pdf")
         var i = 2
         while (f.exists()) {
-            f = File(dir, "$base ($i).pdf")
+            f = File(dir, "$base ($i).$ext")
             i++
         }
         return f
@@ -119,7 +126,8 @@ object Storage {
     }
 
     fun scan(ctx: Context, path: String) {
-        runCatching { MediaScannerConnection.scanFile(ctx, arrayOf(path), arrayOf("application/pdf"), null) }
+        val mime = if (path.lowercase().endsWith(".docx")) "application/vnd.openxmlformats-officedocument.wordprocessingml.document" else "application/pdf"
+        runCatching { MediaScannerConnection.scanFile(ctx, arrayOf(path), arrayOf(mime), null) }
     }
 
     /** Overwrites [origin] with [src]. */
@@ -141,8 +149,8 @@ object Storage {
     }
 
     /** Saves a new file in Documents/محرّر PDF and returns where it went. */
-    fun saveNew(ctx: Context, src: File, wantedName: String): Origin {
-        val name = withPdf(sanitize(wantedName))
+    fun saveNew(ctx: Context, src: File, wantedName: String, ext: String = "pdf", mime: String = "application/pdf"): Origin {
+        val name = withExt(sanitize(wantedName), ext)
         if (hasAllFilesAccess(ctx) || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             runCatching {
                 val dir = saveDir().apply { mkdirs() }
@@ -155,7 +163,7 @@ object Storage {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/" + FOLDER)
             }
             val uri = ctx.contentResolver.insert(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)

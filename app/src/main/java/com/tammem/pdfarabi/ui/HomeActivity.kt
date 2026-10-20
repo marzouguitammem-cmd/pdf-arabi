@@ -53,6 +53,8 @@ import com.tammem.pdfarabi.io.PdfMaker
 import com.tammem.pdfarabi.io.Storage
 import com.tammem.pdfarabi.model.Origin
 import com.tammem.pdfarabi.text.Norm
+import com.tammem.pdfarabi.word.BlankDocx
+import com.tammem.pdfarabi.word.WordActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,12 +83,12 @@ class HomeActivity : AppCompatActivity() {
     }
     private val mergeDocs = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.size < 2) {
-            if (uris.isNotEmpty()) toast("اختار زوز ملفات ولا أكثر باش ندمجهم")
+            if (uris.isNotEmpty()) toast(getString(R.string.pick_two))
             return@registerForActivityResult
         }
         val i = Intent(this, EditorActivity::class.java)
         i.putParcelableArrayListExtra(DocOpener.EXTRA_URIS, ArrayList(uris))
-        i.putExtra(DocOpener.EXTRA_TITLE, "ملف مدمج")
+        i.putExtra(DocOpener.EXTRA_TITLE, getString(R.string.merged_title))
         startActivity(i)
     }
     private val pickImages = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(80)) { uris ->
@@ -142,7 +144,7 @@ class HomeActivity : AppCompatActivity() {
             }
         })
         refresh.setOnRefreshListener { reload() }
-        fab.setOnClickListener { openDoc.launch(arrayOf("application/pdf")) }
+        fab.setOnClickListener { openDoc.launch(arrayOf("application/pdf", WordActivity.MIME, "application/msword")) }
 
         if (!Storage.hasAllFilesAccess(this) && !Prefs.permissionAsked) {
             Prefs.permissionAsked = true
@@ -150,7 +152,7 @@ class HomeActivity : AppCompatActivity() {
                 .setTitle(R.string.perm_title)
                 .setMessage(R.string.perm_body)
                 .setPositiveButton(R.string.perm_button) { _, _ -> requestAccess() }
-                .setNegativeButton("موش توّا", null)
+                .setNegativeButton(getString(R.string.not_now), null)
                 .show()
         }
     }
@@ -189,7 +191,7 @@ class HomeActivity : AppCompatActivity() {
             val card = LayoutInflater.from(this).inflate(R.layout.item_tool_card, row, false)
             card.findViewById<ImageView>(R.id.icon).apply {
                 setImageResource(icon)
-                imageTintList = ColorStateList.valueOf(tint)
+                imageTintList = if (icon == R.drawable.ic_word) null else ColorStateList.valueOf(tint)
             }
             card.findViewById<FrameLayout>(R.id.iconBg).background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -204,6 +206,7 @@ class HomeActivity : AppCompatActivity() {
             pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }
         add(R.drawable.ic_merge, getString(R.string.tool_merge), 0xFF1565C0.toInt()) { mergeDocs.launch(arrayOf("application/pdf")) }
+        add(R.drawable.ic_word, getString(R.string.word_new), 0xFF2B579A.toInt()) { newWordDocument() }
         add(R.drawable.ic_note_add, getString(R.string.tool_new), 0xFF6A1B9A.toInt()) { newDocument() }
     }
 
@@ -240,7 +243,7 @@ class HomeActivity : AppCompatActivity() {
         val isEmpty = rows.isEmpty() && !showPerm
         empty.visibility = if (isEmpty) View.VISIBLE else View.GONE
         emptyText.text = when {
-            query.isNotBlank() -> "ما لقيت حتى ملف بالاسم هذا"
+            query.isNotBlank() -> getString(R.string.no_name_match)
             tab == 0 -> getString(R.string.empty_recent)
             tab == 1 -> getString(R.string.empty_all)
             else -> getString(R.string.empty_fav)
@@ -262,14 +265,23 @@ class HomeActivity : AppCompatActivity() {
 
     private fun openFile(f: PdfFile) {
         if (f.path != null) {
-            startActivity(Intent(this, EditorActivity::class.java).putExtra(DocOpener.EXTRA_PATH, f.path))
+            val target = if (f.isWord) WordActivity::class.java else EditorActivity::class.java
+            startActivity(Intent(this, target).putExtra(DocOpener.EXTRA_PATH, f.path))
         } else if (f.uri != null) {
-            openUri(f.uri)
+            openUri(f.uri, f.isWord)
         }
     }
 
-    private fun openUri(uri: Uri) {
-        val i = Intent(this, EditorActivity::class.java)
+    private fun isWordUri(uri: Uri): Boolean {
+        val type = runCatching { contentResolver.getType(uri) }.getOrNull() ?: ""
+        if (type == WordActivity.MIME || type == "application/msword") return true
+        val name = (Storage.displayName(this, uri) ?: uri.lastPathSegment ?: "").lowercase()
+        return name.endsWith(".docx") || name.endsWith(".doc")
+    }
+
+    private fun openUri(uri: Uri, word: Boolean? = null) {
+        val isWord = word ?: isWordUri(uri)
+        val i = Intent(this, if (isWord) WordActivity::class.java else EditorActivity::class.java)
         i.data = uri
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         startActivity(i)
@@ -307,49 +319,49 @@ class HomeActivity : AppCompatActivity() {
             .build()
         GmsDocumentScanning.getClient(opts).getStartScanIntent(this)
             .addOnSuccessListener { scanLauncher.launch(IntentSenderRequest.Builder(it).build()) }
-            .addOnFailureListener { toast("الماسح يحتاج خدمات Google Play (ولازم انترنت أول مرة)", true) }
+            .addOnFailureListener { toast(getString(R.string.scanner_failed), true) }
     }
 
     private fun saveScanned(pdf: Uri) {
-        val dlg = progress("نسجّل المسح…")
+        val dlg = progress(getString(R.string.saving_scan))
         lifecycleScope.launch {
             val origin = withContext(Dispatchers.IO) {
                 runCatching {
                     val tmp = File(Storage.tmpDir(this@HomeActivity), "scan.pdf")
                     Storage.copyUri(this@HomeActivity, pdf, tmp)
-                    Storage.saveNew(this@HomeActivity, tmp, "مسح ضوئي ${Storage.stamp()}").also { tmp.delete() }
+                    Storage.saveNew(this@HomeActivity, tmp, "${getString(R.string.scan_name)} ${Storage.stamp()}").also { tmp.delete() }
                 }.getOrNull()
             }
             dlg.dismiss()
-            if (origin == null) toast("ما نجمتش نسجّل المسح") else openOrigin(origin)
+            if (origin == null) toast(getString(R.string.scan_failed)) else openOrigin(origin)
         }
     }
 
     private fun imagesToPdf(uris: List<Uri>) {
-        val dlg = progress("نحوّل ${uris.size} تصويرة…")
+        val dlg = progress(getString(R.string.converting_images, uris.size))
         lifecycleScope.launch {
             val origin = withContext(Dispatchers.IO) {
                 runCatching {
                     val tmp = File(Storage.tmpDir(this@HomeActivity), "images.pdf")
                     PdfMaker.imagesToPdf(this@HomeActivity, uris, tmp)
-                    Storage.saveNew(this@HomeActivity, tmp, "صور ${Storage.stamp()}").also { tmp.delete() }
+                    Storage.saveNew(this@HomeActivity, tmp, "${getString(R.string.images_name)} ${Storage.stamp()}").also { tmp.delete() }
                 }.getOrNull()
             }
             dlg.dismiss()
-            if (origin == null) toast("ما نجمتش نحوّل الصور") else openOrigin(origin)
+            if (origin == null) toast(getString(R.string.convert_failed)) else openOrigin(origin)
         }
     }
 
     private fun newDocument() {
-        val styles = arrayOf("صفحات فارغة", "مسطّرة", "مربّعات (كرّاس)", "Seyès (فرنسية)")
+        val styles = arrayOf(getString(R.string.ns_blank), getString(R.string.ps_lined), getString(R.string.ps_grid), getString(R.string.ps_seyes))
         var style = 0
         MaterialAlertDialogBuilder(this)
-            .setTitle("ملف جديد")
+            .setTitle(getString(R.string.new_pdf))
             .setSingleChoiceItems(styles, 0) { _, which -> style = which }
-            .setPositiveButton("التالي") { _, _ ->
+            .setPositiveButton(getString(R.string.next)) { _, _ ->
                 val counts = arrayOf("1", "2", "5", "10")
                 MaterialAlertDialogBuilder(this)
-                    .setTitle("كم من صفحة؟")
+                    .setTitle(getString(R.string.how_many_pages))
                     .setItems(counts) { _, which ->
                         lifecycleScope.launch {
                             val f = withContext(Dispatchers.IO) {
@@ -359,12 +371,31 @@ class HomeActivity : AppCompatActivity() {
                             }
                             startActivity(Intent(this@HomeActivity, EditorActivity::class.java)
                                 .putExtra(DocOpener.EXTRA_WORK, f.path)
-                                .putExtra(DocOpener.EXTRA_TITLE, "ملف جديد"))
+                                .putExtra(DocOpener.EXTRA_TITLE, getString(R.string.untitled)))
                         }
                     }
                     .show()
             }
-            .setNegativeButton("إلغاء", null)
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    private fun newWordDocument() {
+        val items = arrayOf(getString(R.string.word_dir_rtl), getString(R.string.word_dir_ltr))
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.word_new_dir_title))
+            .setItems(items) { _, which ->
+                lifecycleScope.launch {
+                    val f = withContext(Dispatchers.IO) {
+                        val out = File(Storage.workDir(this@HomeActivity), "new-${System.currentTimeMillis()}.docx")
+                        BlankDocx.create(out, which == 0)
+                        out
+                    }
+                    startActivity(Intent(this@HomeActivity, WordActivity::class.java)
+                        .putExtra(WordActivity.EXTRA_WORK, f.path)
+                        .putExtra(WordActivity.EXTRA_TITLE, getString(R.string.untitled)))
+                }
+            }
             .show()
     }
 
@@ -374,48 +405,48 @@ class HomeActivity : AppCompatActivity() {
             else -> f.uri
         } ?: return
         val send = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
+            type = if (f.isWord) WordActivity.MIME else "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(send, "ابعث الملف"))
+        startActivity(Intent.createChooser(send, getString(R.string.share_via)))
     }
 
     private fun rename(f: PdfFile) {
         val path = f.path ?: return
-        askText("بدّل الاسم", Storage.baseName(f.name), "الاسم الجديد") { name ->
+        askText(getString(R.string.rename), Storage.baseName(f.name), getString(R.string.new_name)) { name ->
             val src = File(path)
             val dest = File(src.parentFile, Storage.withPdf(Storage.sanitize(name)))
-            if (dest.exists()) { toast("فما ملف بالاسم هذا"); return@askText }
+            if (dest.exists()) { toast(getString(R.string.name_exists)); return@askText }
             if (src.renameTo(dest)) {
                 Prefs.renameRecent(path, dest.path, dest.name)
                 if (Prefs.isFavorite(path)) { Prefs.toggleFavorite(path); Prefs.toggleFavorite(dest.path) }
                 Storage.scan(this, src.path)
                 Storage.scan(this, dest.path)
                 reload()
-            } else toast("ما نجمتش نبدّل الاسم")
+            } else toast(getString(R.string.rename_failed))
         }
     }
 
     private fun delete(f: PdfFile) {
         val path = f.path ?: return
-        confirm("نفسخ الملف؟", "«${f.name}» باش يتفسخ من التليفون نهائياً.", "فسخ") {
+        confirm(getString(R.string.delete_file_q), getString(R.string.delete_file_msg, f.name), getString(R.string.delete)) {
             if (File(path).delete()) {
                 Prefs.removeRecent(path)
                 Storage.scan(this, path)
                 reload()
-            } else toast("ما نجمتش نفسخو")
+            } else toast(getString(R.string.delete_failed))
         }
     }
 
     private fun showMenu(anchor: View, f: PdfFile, tab: Int) {
         val pm = PopupMenu(this, anchor)
-        pm.menu.add(0, 1, 0, "مشاركة")
+        pm.menu.add(0, 1, 0, getString(R.string.share))
         if (f.path != null && Storage.hasAllFilesAccess(this)) {
-            pm.menu.add(0, 2, 1, "بدّل الاسم")
-            pm.menu.add(0, 4, 3, "فسخ الملف")
+            pm.menu.add(0, 2, 1, getString(R.string.rename))
+            pm.menu.add(0, 4, 3, getString(R.string.delete_file))
         }
-        if (tab == 0) pm.menu.add(0, 3, 2, "نحّيه من القائمة")
+        if (tab == 0) pm.menu.add(0, 3, 2, getString(R.string.remove_from_list))
         pm.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> share(f)

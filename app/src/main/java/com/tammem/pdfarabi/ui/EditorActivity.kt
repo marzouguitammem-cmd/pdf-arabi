@@ -259,7 +259,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     // ------------------------------------------------------------------ loading
 
     private fun load(intent: Intent) {
-        showBusy("نحلّ في الملف…")
+        showBusy(getString(R.string.opening))
         lifecycleScope.launch {
             try {
                 val prepared = withContext(Dispatchers.IO) { DocOpener.prepare(this@EditorActivity, intent) }
@@ -306,9 +306,9 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             } catch (e: Exception) {
                 hideBusy()
                 MaterialAlertDialogBuilder(this@EditorActivity)
-                    .setTitle("ما نجمتش نحلّ الملف")
-                    .setMessage("الملف هذا يظهر مكسور ولا موش PDF.\n\n${e.message ?: ""}")
-                    .setPositiveButton("باهي") { _, _ -> finish() }
+                    .setTitle(getString(R.string.open_failed_title))
+                    .setMessage(getString(R.string.open_failed_msg, e.message ?: ""))
+                    .setPositiveButton(getString(R.string.ok)) { _, _ -> finish() }
                     .setCancelable(false)
                     .show()
             }
@@ -328,7 +328,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     runCatching { DocOpener.decrypt(this@EditorActivity, src.file, pw) }.getOrNull()
                 }
                 if (dec == null) {
-                    toast("كلمة السر غالطة")
+                    toast(getString(R.string.wrong_password))
                     continue
                 }
                 src = PdfSource(dec)
@@ -341,7 +341,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     private suspend fun askPassword(): String? = suspendCancellableCoroutine { cont ->
         var done = false
         val til = com.google.android.material.textfield.TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
-            hint = "كلمة السر"
+            hint = getString(R.string.password)
             endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_PASSWORD_TOGGLE
         }
         val input = com.google.android.material.textfield.TextInputEditText(til.context).apply {
@@ -350,10 +350,10 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
         til.addView(input)
         val wrap = FrameLayout(this).apply { setPadding(dp(22f), dp(8f), dp(22f), 0); addView(til) }
         val d = MaterialAlertDialogBuilder(this)
-            .setTitle("الملف محمي بكلمة سر")
+            .setTitle(getString(R.string.protected_title))
             .setView(wrap)
-            .setPositiveButton("حلّ") { _, _ -> done = true; cont.resume(input.text?.toString() ?: "") }
-            .setNegativeButton("إلغاء") { _, _ -> done = true; cont.resume(null) }
+            .setPositiveButton(getString(R.string.unlock)) { _, _ -> done = true; cont.resume(input.text?.toString() ?: "") }
+            .setNegativeButton(getString(R.string.cancel)) { _, _ -> done = true; cont.resume(null) }
             .setOnDismissListener { if (!done) { done = true; cont.resume(null) } }
             .create()
         d.setOnShowListener { showKeyboard(input) }
@@ -364,10 +364,10 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
         var done = false
         val t = SimpleDateFormat("dd/MM HH:mm", Locale.US).format(Date(time))
         MaterialAlertDialogBuilder(this)
-            .setTitle("تعديلات ما تسجّلتش")
-            .setMessage("عندك تعديلات على الملف هذا من $t ما تسجّلتش. تحب ترجعلها؟")
-            .setPositiveButton("نرجعلها") { _, _ -> done = true; cont.resume(true) }
-            .setNegativeButton("لا، الملف كيف ما هو") { _, _ -> done = true; cont.resume(false) }
+            .setTitle(getString(R.string.draft_title))
+            .setMessage(getString(R.string.draft_msg, t))
+            .setPositiveButton(getString(R.string.draft_restore)) { _, _ -> done = true; cont.resume(true) }
+            .setNegativeButton(getString(R.string.draft_discard)) { _, _ -> done = true; cont.resume(false) }
             .setOnDismissListener { if (!done) { done = true; cont.resume(false) } }
             .show()
     }
@@ -387,7 +387,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun updateTitle() {
         toolbar.title = Storage.baseName(model.title)
-        toolbar.subtitle = if (model.history.dirty) "• تعديلات ما تسجّلتش" else null
+        toolbar.subtitle = if (model.history.dirty) getString(R.string.unsaved_sub) else null
     }
 
     private val hideBadge = Runnable { pageBadge.animate().alpha(0f).setDuration(300).start() }
@@ -440,35 +440,35 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
         m.clear()
         val dirty = model.history.dirty
         if (editMode) {
-            m.add(0, M.UNDO, 0, "رجوع للخلف").setIcon(R.drawable.ic_undo).setEnabled(model.history.canUndo)
+            m.add(0, M.UNDO, 0, getString(R.string.undo)).setIcon(R.drawable.ic_undo).setEnabled(model.history.canUndo)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            m.add(0, M.REDO, 1, "إعادة").setIcon(R.drawable.ic_redo).setEnabled(model.history.canRedo)
+            m.add(0, M.REDO, 1, getString(R.string.redo)).setIcon(R.drawable.ic_redo).setEnabled(model.history.canRedo)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            m.add(0, M.SAVE, 2, "حفظ").setIcon(R.drawable.ic_save).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            m.add(0, M.SAVE, 2, getString(R.string.save)).setIcon(R.drawable.ic_save).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             m.findItem(M.UNDO).icon?.mutate()?.alpha = if (model.history.canUndo) 255 else 90
             m.findItem(M.REDO).icon?.mutate()?.alpha = if (model.history.canRedo) 255 else 90
         } else {
-            m.add(0, M.SEARCH, 0, "بحث").setIcon(R.drawable.ic_search).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            m.add(0, M.PAGES, 1, "الصفحات").setIcon(R.drawable.ic_grid).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            if (dirty) m.add(0, M.SAVE, 2, "حفظ").setIcon(R.drawable.ic_save).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            else m.add(0, M.SHARE, 2, "مشاركة").setIcon(R.drawable.ic_share).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            m.add(0, M.SEARCH, 0, getString(R.string.search)).setIcon(R.drawable.ic_search).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            m.add(0, M.PAGES, 1, getString(R.string.pages)).setIcon(R.drawable.ic_grid).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            if (dirty) m.add(0, M.SAVE, 2, getString(R.string.save)).setIcon(R.drawable.ic_save).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            else m.add(0, M.SHARE, 2, getString(R.string.share)).setIcon(R.drawable.ic_share).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         }
         var o = 10
-        if (!editMode && !dirty) m.add(0, M.SAVE, o++, "حفظ")
-        m.add(0, M.SAVE_COPY, o++, "حفظ نسخة باسم آخر")
-        if (editMode || dirty) m.add(0, M.SHARE, o++, "مشاركة (واتساب…)")
-        m.add(0, M.PRINT, o++, "طباعة")
+        if (!editMode && !dirty) m.add(0, M.SAVE, o++, getString(R.string.save))
+        m.add(0, M.SAVE_COPY, o++, getString(R.string.save_copy))
+        if (editMode || dirty) m.add(0, M.SHARE, o++, getString(R.string.share_whatsapp))
+        m.add(0, M.PRINT, o++, getString(R.string.print))
         if (editMode) {
-            m.add(0, M.SEARCH, o++, "بحث في الملف")
-            m.add(0, M.PAGES, o++, "الصفحات")
+            m.add(0, M.SEARCH, o++, getString(R.string.search_file))
+            m.add(0, M.PAGES, o++, getString(R.string.pages))
         }
-        m.add(0, M.GOTO, o++, "روح لصفحة…")
-        m.add(0, M.FIT, o++, "ملائمة الصفحة للشاشة")
-        m.add(0, M.IMAGES, o++, "سجّل الصفحات كصور")
-        m.add(0, M.PROTECT, o++, "حماية بكلمة سر")
-        m.add(0, M.NIGHT, o++, "القراية في الليل").setCheckable(true).setChecked(Prefs.nightReading)
-        m.add(0, M.INFO, o++, "معلومات الملف")
-        m.add(0, M.SETTINGS, o, "الإعدادات")
+        m.add(0, M.GOTO, o++, getString(R.string.goto_page))
+        m.add(0, M.FIT, o++, getString(R.string.fit_page))
+        m.add(0, M.IMAGES, o++, getString(R.string.pages_as_images))
+        m.add(0, M.PROTECT, o++, getString(R.string.protect))
+        m.add(0, M.NIGHT, o++, getString(R.string.night_reading)).setCheckable(true).setChecked(Prefs.nightReading)
+        m.add(0, M.INFO, o++, getString(R.string.file_info))
+        m.add(0, M.SETTINGS, o, getString(R.string.settings))
     }
 
     private fun onMenu(id: Int) {
@@ -482,7 +482,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             M.PRINT -> print()
             M.SEARCH -> openSearch()
             M.PAGES -> openPages()
-            M.GOTO -> askText("روح لصفحة", "", "رقم الصفحة (1 - ${model.pages.size})") { t ->
+            M.GOTO -> askText(getString(R.string.goto_title), "", getString(R.string.goto_hint, model.pages.size)) { t ->
                 t.trim().toIntOrNull()?.let { pdfView.scrollToPage(it - 1) }
             }
             M.FIT -> pdfView.resetZoom()
@@ -502,13 +502,13 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
         val where = when (val o = model.origin) {
             is Origin.Path -> o.path
             is Origin.Content -> Storage.displayName(this, o.uri) ?: o.uri.toString()
-            Origin.None -> "ملف جديد (ما تسجّلش بعد)"
+            Origin.None -> getString(R.string.new_unsaved)
         }
         val size = model.sources.sumOf { it.file.length() }
         MaterialAlertDialogBuilder(this)
             .setTitle(Storage.baseName(model.title))
-            .setMessage("عدد الصفحات: ${model.pages.size}\nالحجم: ${formatSize(size)}\nالبلاصة: $where")
-            .setPositiveButton("باهي", null)
+            .setMessage(getString(R.string.info_msg, model.pages.size, formatSize(size), where))
+            .setPositiveButton(getString(R.string.ok), null)
             .show()
     }
 
@@ -545,21 +545,21 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             tools.addView(b)
             if (tool != null) toolButtons[tool] = b
         }
-        add(R.drawable.ic_book, "قراية", null) { exitEditMode() }
-        add(R.drawable.ic_select, "تحريك", Tool.SELECT)
-        add(R.drawable.ic_replace, "بدّل كلام", Tool.REPLACE)
-        add(R.drawable.ic_text, "نص", Tool.TEXT)
-        add(R.drawable.ic_draw, "قلم", Tool.PEN)
-        add(R.drawable.ic_highlight, "تسطير", Tool.HIGHLIGHT)
-        add(R.drawable.ic_marks, "تصحيح", Tool.MARK)
-        add(R.drawable.ic_stamp, "أختام", Tool.STAMP)
-        add(R.drawable.ic_signature, "إمضاء", Tool.SIGN)
-        add(R.drawable.ic_image, "تصويرة", null) {
+        add(R.drawable.ic_book, getString(R.string.t_read), null) { exitEditMode() }
+        add(R.drawable.ic_select, getString(R.string.t_move), Tool.SELECT)
+        add(R.drawable.ic_replace, getString(R.string.t_replace), Tool.REPLACE)
+        add(R.drawable.ic_text, getString(R.string.t_text), Tool.TEXT)
+        add(R.drawable.ic_draw, getString(R.string.t_pen), Tool.PEN)
+        add(R.drawable.ic_highlight, getString(R.string.t_highlight), Tool.HIGHLIGHT)
+        add(R.drawable.ic_marks, getString(R.string.t_marks), Tool.MARK)
+        add(R.drawable.ic_stamp, getString(R.string.t_stamps), Tool.STAMP)
+        add(R.drawable.ic_signature, getString(R.string.t_sign), Tool.SIGN)
+        add(R.drawable.ic_image, getString(R.string.t_image), null) {
             pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }
-        add(R.drawable.ic_shapes, "أشكال", Tool.SHAPE)
-        add(R.drawable.ic_eraser, "ممحاة", Tool.ERASER)
-        add(R.drawable.ic_grid, "الصفحات", null) { openPages() }
+        add(R.drawable.ic_shapes, getString(R.string.t_shapes), Tool.SHAPE)
+        add(R.drawable.ic_eraser, getString(R.string.t_eraser), Tool.ERASER)
+        add(R.drawable.ic_grid, getString(R.string.pages), null) { openPages() }
     }
 
     private fun setTool(t: Tool) {
@@ -614,30 +614,30 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             return
         }
         when (pdfView.tool) {
-            Tool.SELECT -> hint("انقر على حاجة زدتها باش تحرّكها، تكبّرها ولا تبدّلها")
-            Tool.REPLACE -> hint("انقر على كلمة باش تبدّلها • اضغط مطوّل واسحب باش تختار برشا")
+            Tool.SELECT -> hint(getString(R.string.h_select))
+            Tool.REPLACE -> hint(getString(R.string.h_replace))
             Tool.TEXT -> {
-                hint("انقر وين تحب تكتب")
+                hint(getString(R.string.h_text))
                 options.addView(divider(this))
                 options.addSwatches(Palette.text.copyOf(8), Prefs.textColor) { Prefs.textColor = it }
             }
             Tool.PEN -> {
                 options.addSwatches(Palette.pen, pdfView.penColor) { pdfView.penColor = it; Prefs.penColor = it }
                 options.addView(divider(this))
-                widthChips(floatArrayOf(0.8f, 1.6f, 3f), arrayOf("رقيق", "متوسط", "عريض"), pdfView.penWidth) {
+                widthChips(floatArrayOf(0.8f, 1.6f, 3f), arrayOf(getString(R.string.w_thin), getString(R.string.w_medium), getString(R.string.w_thick)), pdfView.penWidth) {
                     pdfView.penWidth = it; Prefs.penWidth = it
                 }
-                hint("• تتحرّك في الصفحة بزوز صوابع")
+                hint(getString(R.string.h_two_fingers))
             }
             Tool.HIGHLIGHT -> {
                 options.addSwatches(Palette.highlight, pdfView.hlColor) { pdfView.hlColor = it; Prefs.hlColor = it }
                 options.addView(divider(this))
-                widthChips(floatArrayOf(8f, 12f, 18f), arrayOf("رقيق", "متوسط", "عريض"), pdfView.hlWidth) {
+                widthChips(floatArrayOf(8f, 12f, 18f), arrayOf(getString(R.string.w_thin), getString(R.string.w_medium), getString(R.string.w_thick)), pdfView.hlWidth) {
                     pdfView.hlWidth = it; Prefs.hlWidth = it
                 }
-                hint("• الخط المستقيم يتعدّل وحدو")
+                hint(getString(R.string.h_straight))
             }
-            Tool.ERASER -> hint("امسح بصبعك على الخطوط والعلامات باش تفسخهم • تتحرّك بزوز صوابع")
+            Tool.ERASER -> hint(getString(R.string.h_eraser))
             Tool.SHAPE -> {
                 val kinds = listOf(
                     ShapeKind.RECT to R.drawable.ic_shape_rect, ShapeKind.OVAL to R.drawable.ic_shape_oval,
@@ -656,7 +656,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 options.addView(divider(this))
                 options.addSwatches(Palette.pen, pdfView.shapeColor) { pdfView.shapeColor = it; Prefs.shapeColor = it }
                 options.addView(divider(this))
-                widthChips(floatArrayOf(0.8f, 1.6f, 3f), arrayOf("رقيق", "متوسط", "عريض"), pdfView.shapeWidth) {
+                widthChips(floatArrayOf(0.8f, 1.6f, 3f), arrayOf(getString(R.string.w_thin), getString(R.string.w_medium), getString(R.string.w_thick)), pdfView.shapeWidth) {
                     pdfView.shapeWidth = it; Prefs.shapeWidth = it
                 }
             }
@@ -691,7 +691,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     markColor = it; Prefs.markColor = it
                 }
                 options.addView(divider(this))
-                widthChips(floatArrayOf(14f, 22f, 34f), arrayOf("صغير", "متوسط", "كبير"), markSize) {
+                widthChips(floatArrayOf(14f, 22f, 34f), arrayOf(getString(R.string.s_small), getString(R.string.w_medium), getString(R.string.s_large)), markSize) {
                     markSize = it; Prefs.markSize = it
                 }
             }
@@ -700,12 +700,12 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 chip.typeface = Fonts.typeface(stamp.font, stamp.bold)
                 chip.setTextColor(stamp.color)
                 options.addView(chip)
-                options.addView(makeTextChip(this, "بدّل الختم…") { chooseStamp() })
-                hint("انقر على الصفحة باش تحطّو")
+                options.addView(makeTextChip(this, getString(R.string.change_stamp)) { chooseStamp() })
+                hint(getString(R.string.h_stamp))
             }
             Tool.SIGN -> {
-                options.addView(makeTextChip(this, "اختار إمضاء…") { chooseSignature() })
-                hint(if (signature == null) "امضي مرة وحدة وتتسجّل" else "انقر على الصفحة وين تحب تمضي")
+                options.addView(makeTextChip(this, getString(R.string.choose_signature)) { chooseSignature() })
+                hint(if (signature == null) getString(R.string.h_sign_first) else getString(R.string.h_sign))
             }
             Tool.READ -> {}
         }
@@ -729,7 +729,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun buildSelectionOptions(page: PageItem, a: Annot) {
         if (a is TextAnnot) {
-            options.addView(makeTextChip(this, "بدّل النص") { onEditText(model.indexOfPage(page.id), a) })
+            options.addView(makeTextChip(this, getString(R.string.edit_text)) { onEditText(model.indexOfPage(page.id), a) })
         }
         if (a.canRecolor && a !is CoverAnnot) {
             options.addView(divider(this))
@@ -743,25 +743,25 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
         }
         options.addView(divider(this))
         if (a is com.tammem.pdfarabi.model.Boxed) {
-            options.addView(makeIconChip(this, R.drawable.ic_rotate, "دوّر") {
+            options.addView(makeIconChip(this, R.drawable.ic_rotate, getString(R.string.rotate)) {
                 val cur = pdfView.selection()?.second ?: return@makeIconChip
                 val n = cur.rotated90()
                 commit(ReplaceAnnot(page.id, cur, n))
                 pdfView.select(page.id, n)
             })
         }
-        options.addView(makeIconChip(this, R.drawable.ic_copy, "نسخة") {
+        options.addView(makeIconChip(this, R.drawable.ic_copy, getString(R.string.copy)) {
             val cur = pdfView.selection()?.second ?: return@makeIconChip
             val n = cur.withId(Ids.new()).translated(12f, 12f)
             commit(AddAnnot(page.id, n))
             pdfView.select(page.id, n)
         })
-        options.addView(makeIconChip(this, R.drawable.ic_delete, "فسخ") {
+        options.addView(makeIconChip(this, R.drawable.ic_delete, getString(R.string.delete)) {
             val cur = pdfView.selection()?.second ?: return@makeIconChip
             pdfView.select(null, null)
             commit(RemoveAnnot(page.id, cur))
         })
-        options.addView(makeIconChip(this, R.drawable.ic_close, "إلغاء التحديد") { pdfView.select(null, null) })
+        options.addView(makeIconChip(this, R.drawable.ic_close, getString(R.string.deselect)) { pdfView.select(null, null) })
     }
 
     // ------------------------------------------------------------------ PdfView.Host
@@ -898,8 +898,8 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     else -> pt.wordAt(x, y)
                 }
                 if (sel == null && rect == null) {
-                    toast(if (pt.isEmpty) "الصفحة هذي تصويرة: اضغط مطوّل واسحب على الكلام باش تختارو"
-                    else "ما لقيتش كلام هنا. اضغط مطوّل واسحب باش تختار")
+                    toast(if (pt.isEmpty) getString(R.string.image_page_hint)
+                    else getString(R.string.no_text_here))
                     return@launch
                 }
                 val bw = model.baseW(item)
@@ -917,7 +917,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     limit = RectF(b.left - size * 0.12f, b.top - size * 0.08f, b.right + size * 0.12f, b.bottom + size * 0.1f)
                     rtl = sel.rtl || com.tammem.pdfarabi.text.LegacyArabic.looksGarbled(sel.text)
                     prefill = if (com.tammem.pdfarabi.text.LegacyArabic.looksGarbled(sel.text)) {
-                        toast("الخط متاع الكتاب هذا قديم برشا وما نجمتش نقرا الكلام، اكتب الكلام الجديد", true)
+                        toast(getString(R.string.old_font), true)
                         ""
                     } else sel.text
                     fontId = Fonts.guess(sel.font, rtl)
@@ -960,8 +960,8 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 pdfView.setPreview(item.id, listOf(cover, proto))
                 val extras = ArrayList<Pair<String, () -> Unit>>()
                 if (sel != null && rect == null) {
-                    if (!wholeLine) extras += "السطر كامل" to { pdfView.clearPreview(); startReplace(pageIndex, x, y, null, true) }
-                    else extras += "كلمة برك" to { pdfView.clearPreview(); startReplace(pageIndex, x, y, null, false) }
+                    if (!wholeLine) extras += getString(R.string.whole_line) to { pdfView.clearPreview(); startReplace(pageIndex, x, y, null, true) }
+                    else extras += getString(R.string.word_only) to { pdfView.clearPreview(); startReplace(pageIndex, x, y, null, false) }
                 }
                 TextEditSheet(this@EditorActivity, proto, TextEditSheet.Mode.REPLACE,
                     onPreview = { t, rm -> pdfView.setPreview(item.id, listOf(cover.copy(removeText = rm && hasText), t)) },
@@ -988,7 +988,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     private fun insertImage(uri: Uri) {
         lifecycleScope.launch {
             val f = withContext(Dispatchers.IO) { runCatching { PdfMaker.storeImage(this@EditorActivity, uri) }.getOrNull() }
-            if (f == null) { toast("ما نجمتش نحلّ التصويرة"); return@launch }
+            if (f == null) { toast(getString(R.string.image_failed)); return@launch }
             val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             android.graphics.BitmapFactory.decodeFile(f.path, o)
             val i = pdfView.currentPage()
@@ -1002,7 +1002,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             commit(AddAnnot(p.id, a))
             setTool(Tool.SELECT)
             pdfView.select(p.id, a)
-            toast("حرّك التصويرة بصبعك وكبّرها من الدائرة")
+            toast(getString(R.string.image_hint))
         }
     }
 
@@ -1047,7 +1047,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun insertPdfs(uris: List<Uri>) {
         val after = insertPositionOrCurrent()
-        showBusy("نزيد الصفحات…")
+        showBusy(getString(R.string.adding_pages))
         lifecycleScope.launch {
             var pos = after
             for (u in uris) {
@@ -1063,7 +1063,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun insertImagePages(uris: List<Uri>) {
         val after = insertPositionOrCurrent()
-        showBusy("نحضّر الصور…")
+        showBusy(getString(R.string.preparing_images))
         lifecycleScope.launch {
             val f = withContext(Dispatchers.IO) {
                 runCatching {
@@ -1072,15 +1072,15 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     out
                 }.getOrNull()
             }
-            if (f != null) addSourcePages(f, after) else toast("ما نجمتش نحلّ الصور")
+            if (f != null) addSourcePages(f, after) else toast(getString(R.string.images_failed))
             hideBusy()
         }
     }
 
     private fun askBlankPage(after: Int) {
-        val names = arrayOf("فارغة", "مسطّرة", "مربّعات (كرّاس)", "Seyès (فرنسية)")
+        val names = arrayOf(getString(R.string.ps_blank), getString(R.string.ps_lined), getString(R.string.ps_grid), getString(R.string.ps_seyes))
         MaterialAlertDialogBuilder(this)
-            .setTitle("صفحة جديدة")
+            .setTitle(getString(R.string.new_page))
             .setItems(names) { _, which ->
                 lifecycleScope.launch {
                     val ref = model.pages.getOrNull(after) ?: model.pages.lastOrNull()
@@ -1106,15 +1106,15 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             .build()
         GmsDocumentScanning.getClient(opts).getStartScanIntent(this)
             .addOnSuccessListener { sender -> scanLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
-            .addOnFailureListener { toast("الماسح يحتاج خدمات Google Play (ولازم انترنت أول مرة)", true) }
+            .addOnFailureListener { toast(getString(R.string.scanner_failed), true) }
     }
 
     private fun extractPages(pages: List<PageItem>) {
         if (pages.isEmpty()) return
-        askText("استخراج ${pages.size} صفحة", "${Storage.baseName(model.title)} - صفحات", "اسم الملف الجديد") { name ->
-            exportThen(Exporter.Options(true, null, pages), "نحضّر الملف…") { out ->
+        askText(getString(R.string.extract_title, pages.size), "${Storage.baseName(model.title)} - ${getString(R.string.extract_suffix)}", getString(R.string.new_file_name)) { name ->
+            exportThen(Exporter.Options(true, null, pages), getString(R.string.preparing)) { out ->
                 val origin = withContext(Dispatchers.IO) { Storage.saveNew(this@EditorActivity, out, name) }
-                savedSnack("تسجّل في ${Storage.describe(origin)}", origin)
+                savedSnack(getString(R.string.saved_in, Storage.describe(origin)), origin)
             }
         }
     }
@@ -1134,9 +1134,9 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             if (r.isFailure) {
                 hideBusy()
                 MaterialAlertDialogBuilder(this@EditorActivity)
-                    .setTitle("صار مشكل")
-                    .setMessage("ما نجمتش نحضّر الملف.\n${r.exceptionOrNull()?.message ?: ""}")
-                    .setPositiveButton("باهي", null)
+                    .setTitle(getString(R.string.error_title))
+                    .setMessage(getString(R.string.prepare_failed, r.exceptionOrNull()?.message ?: ""))
+                    .setPositiveButton(getString(R.string.ok), null)
                     .show()
                 return@launch
             }
@@ -1144,9 +1144,9 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 block(out)
             } catch (e: Exception) {
                 MaterialAlertDialogBuilder(this@EditorActivity)
-                    .setTitle("صار مشكل")
+                    .setTitle(getString(R.string.error_title))
                     .setMessage(e.message ?: "")
-                    .setPositiveButton("باهي", null)
+                    .setPositiveButton(getString(R.string.ok), null)
                     .show()
             } finally {
                 hideBusy()
@@ -1162,21 +1162,21 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun save(after: (() -> Unit)? = null) {
         if (!canOverwrite()) { saveAs(after); return }
-        exportThen(Exporter.Options(true, model.password), "نسجّل…") { out ->
+        exportThen(Exporter.Options(true, model.password), getString(R.string.saving)) { out ->
             withContext(Dispatchers.IO) { Storage.writeBack(this@EditorActivity, out, model.origin) }
             model.history.markClean()
             deleteDraft()
             docKey?.let { Prefs.touchRecent(it, model.title, out.length()) }
-            toast("تسجّل ✓")
+            toast(getString(R.string.saved))
             after?.invoke()
         }
     }
 
     /** First save of a new/read-only file: creates the file and keeps working on it. */
     private fun saveAs(after: (() -> Unit)? = null) {
-        val suggested = if (model.origin == Origin.None) Storage.baseName(model.title) else "${Storage.baseName(model.title)} (معدّل)"
-        askText("حفظ الملف", suggested, "اسم الملف") { name ->
-            exportThen(Exporter.Options(true, model.password), "نسجّل…") { out ->
+        val suggested = if (model.origin == Origin.None) Storage.baseName(model.title) else "${Storage.baseName(model.title)} (${getString(R.string.edited_suffix)})"
+        askText(getString(R.string.save_file), suggested, getString(R.string.file_name)) { name ->
+            exportThen(Exporter.Options(true, model.password), getString(R.string.saving)) { out ->
                 val origin = withContext(Dispatchers.IO) { Storage.saveNew(this@EditorActivity, out, name) }
                 deleteDraft()
                 model.origin = origin
@@ -1184,18 +1184,18 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 docKey = origin.key
                 docKey?.let { Prefs.touchRecent(it, model.title, out.length()) }
                 model.history.markClean()
-                savedSnack("تسجّل في ${Storage.describe(origin)}", null)
+                savedSnack(getString(R.string.saved_in, Storage.describe(origin)), null)
                 after?.invoke()
             }
         }
     }
 
     private fun saveCopy() {
-        askText("حفظ نسخة", "${Storage.baseName(model.title)} (نسخة)", "اسم النسخة") { name ->
-            exportThen(Exporter.Options(true, model.password), "نسجّل النسخة…") { out ->
+        askText(getString(R.string.save_copy_title), "${Storage.baseName(model.title)} (${getString(R.string.copy_suffix)})", getString(R.string.copy_name)) { name ->
+            exportThen(Exporter.Options(true, model.password), getString(R.string.saving_copy)) { out ->
                 val origin = withContext(Dispatchers.IO) { Storage.saveNew(this@EditorActivity, out, name) }
                 origin.key?.let { Prefs.touchRecent(it, Storage.withPdf(Storage.sanitize(name)), out.length()) }
-                savedSnack("النسخة تسجّلت في ${Storage.describe(origin)}", origin)
+                savedSnack(getString(R.string.copy_saved_in, Storage.describe(origin)), origin)
             }
         }
     }
@@ -1203,7 +1203,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     private fun savedSnack(msg: String, openable: Origin?) {
         val sb = Snackbar.make(root, msg, Snackbar.LENGTH_LONG)
         if (openable != null) {
-            sb.setAction("حلّها") {
+            sb.setAction(getString(R.string.open_it)) {
                 val i = Intent(this, EditorActivity::class.java)
                 when (openable) {
                     is Origin.Path -> i.putExtra(DocOpener.EXTRA_PATH, openable.path)
@@ -1219,19 +1219,19 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     }
 
     private fun share() {
-        exportThen(Exporter.Options(true, model.password), "نحضّر الملف…") { out ->
+        exportThen(Exporter.Options(true, model.password), getString(R.string.preparing)) { out ->
             val uri = FileProvider.getUriForFile(this, "$packageName.files", out)
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/pdf"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(send, "ابعث الملف"))
+            startActivity(Intent.createChooser(send, getString(R.string.share_via)))
         }
     }
 
     private fun print() {
-        exportThen(Exporter.Options(true, null), "نحضّر للطباعة…") { out ->
+        exportThen(Exporter.Options(true, null), getString(R.string.preparing_print)) { out ->
             val pm = getSystemService(PRINT_SERVICE) as PrintManager
             val name = Storage.baseName(model.title)
             pm.print(name, object : PrintDocumentAdapter() {
@@ -1265,14 +1265,14 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     }
 
     private fun protect() {
-        askText("حماية بكلمة سر", "", "كلمة السر الجديدة", password = true) { pw ->
-            if (pw.length < 3) { toast("كلمة السر قصيرة برشا"); return@askText }
-            askText("عاود كلمة السر", "", "كلمة السر", password = true) { again ->
-                if (again != pw) { toast("كلمتين السر موش كيف كيف"); return@askText }
-                askText("اسم الملف المحمي", "${Storage.baseName(model.title)} (محمي)", "اسم الملف") { name ->
-                    exportThen(Exporter.Options(true, pw), "نحمي الملف…") { out ->
+        askText(getString(R.string.protect), "", getString(R.string.new_password), password = true) { pw ->
+            if (pw.length < 3) { toast(getString(R.string.password_short)); return@askText }
+            askText(getString(R.string.repeat_password), "", getString(R.string.password), password = true) { again ->
+                if (again != pw) { toast(getString(R.string.password_mismatch)); return@askText }
+                askText(getString(R.string.protected_name), "${Storage.baseName(model.title)} (${getString(R.string.protected_suffix)})", getString(R.string.file_name)) { name ->
+                    exportThen(Exporter.Options(true, pw), getString(R.string.protecting)) { out ->
                         val origin = withContext(Dispatchers.IO) { Storage.saveNew(this@EditorActivity, out, name) }
-                        savedSnack("الملف المحمي تسجّل في ${Storage.describe(origin)}", null)
+                        savedSnack(getString(R.string.protected_saved, Storage.describe(origin)), null)
                     }
                 }
             }
@@ -1280,10 +1280,10 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
     }
 
     private fun exportImages() {
-        exportThen(Exporter.Options(true, null), "نحوّل الصفحات لصور…") { out ->
+        exportThen(Exporter.Options(true, null), getString(R.string.to_images)) { out ->
             val folder = Storage.sanitize(Storage.baseName(model.title))
             val count = withContext(Dispatchers.IO) { renderToImages(out, folder) }
-            savedSnack("تسجّلت $count صورة في Pictures/${Storage.FOLDER}/$folder", null)
+            savedSnack(getString(R.string.images_saved, count, "Pictures/${Storage.FOLDER}/$folder"), null)
         }
     }
 
@@ -1430,8 +1430,8 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
             if (flat.isEmpty()) {
                 searchCount.text = "0"
                 pdfView.setCurrentHit(-1, null)
-                if (!anyText) toast("الملف هذا تصاور (مسكاني)، ما فيهش كلام نلوّج فيه", true)
-                else toast("ما لقيتش «$q»")
+                if (!anyText) toast(getString(R.string.scanned_no_text), true)
+                else toast(getString(R.string.not_found, q))
             } else {
                 val cur = pdfView.currentPage()
                 hitIndex = flat.indexOfFirst { model.indexOfPage(it.first) >= cur }.let { if (it < 0) 0 else it }
@@ -1469,11 +1469,11 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
 
     private fun askSaveOnExit() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("تسجّل التعديلات؟")
-            .setMessage("عملت تعديلات على «${Storage.baseName(model.title)}» ما تسجّلتش.")
-            .setPositiveButton("سجّل") { _, _ -> save { finish() } }
-            .setNegativeButton("ما نسجّلش") { _, _ -> deleteDraft(); model.history.markClean(); finish() }
-            .setNeutralButton("إلغاء", null)
+            .setTitle(getString(R.string.save_changes_q))
+            .setMessage(getString(R.string.save_changes_msg, Storage.baseName(model.title)))
+            .setPositiveButton(getString(R.string.save_btn)) { _, _ -> save { finish() } }
+            .setNegativeButton(getString(R.string.dont_save)) { _, _ -> deleteDraft(); model.history.markClean(); finish() }
+            .setNeutralButton(getString(R.string.cancel), null)
             .show()
     }
 

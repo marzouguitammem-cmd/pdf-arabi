@@ -69,7 +69,7 @@ class SwatchView(context: Context, val color: Int) : View(context) {
         layoutParams = LinearLayout.LayoutParams(s, s)
         isClickable = true
         isFocusable = true
-        contentDescription = "لون"
+        contentDescription = context.getString(R.string.color)
     }
 
     override fun setSelected(selected: Boolean) {
@@ -229,7 +229,7 @@ fun Context.askText(
     initial: String = "",
     hint: String = "",
     password: Boolean = false,
-    confirm: String = "تمّ",
+    confirm: String? = null,
     onOk: (String) -> Unit
 ) {
     val layout = TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
@@ -253,19 +253,19 @@ fun Context.askText(
     val d = MaterialAlertDialogBuilder(this)
         .setTitle(title)
         .setView(wrap)
-        .setPositiveButton(confirm) { _, _ -> onOk(input.text?.toString() ?: "") }
-        .setNegativeButton("إلغاء", null)
+        .setPositiveButton(confirm ?: getString(R.string.done)) { _, _ -> onOk(input.text?.toString() ?: "") }
+        .setNegativeButton(getString(R.string.cancel), null)
         .create()
     d.setOnShowListener { showKeyboard(input) }
     d.show()
 }
 
-fun Context.confirm(title: String, msg: String, yes: String, no: String = "إلغاء", onYes: () -> Unit) {
+fun Context.confirm(title: String, msg: String, yes: String, no: String? = null, onYes: () -> Unit) {
     MaterialAlertDialogBuilder(this)
         .setTitle(title)
         .setMessage(msg)
         .setPositiveButton(yes) { _, _ -> onYes() }
-        .setNegativeButton(no, null)
+        .setNegativeButton(no ?: getString(R.string.cancel), null)
         .show()
 }
 

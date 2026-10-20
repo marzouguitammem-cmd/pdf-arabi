@@ -26,6 +26,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.tammem.pdfarabi.Fonts
 import com.tammem.pdfarabi.Prefs
+import com.tammem.pdfarabi.R
 import com.tammem.pdfarabi.Signature
 import com.tammem.pdfarabi.Stamp
 import java.text.SimpleDateFormat
@@ -86,13 +87,13 @@ fun showStampsSheet(ctx: Context, onPick: (Stamp) -> Unit) {
     }
     scroll.addView(box)
     box.addView(TextView(c).apply {
-        text = "الأختام"
+        text = c.getString(R.string.stamps)
         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
         typeface = Fonts.get("tajawal").bold
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
     })
     box.addView(TextView(c).apply {
-        text = "اختار ختم ومبعد انقر على الصفحة باش تحطّو (تنجم تحطّو برشا مرات). اضغط مطوّل على ختم متاعك باش تفسخو."
+        text = c.getString(R.string.stamps_hint)
         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
         typeface = Fonts.get("tajawal").regular
         setTextColor(c.attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
@@ -117,7 +118,7 @@ fun showStampsSheet(ctx: Context, onPick: (Stamp) -> Unit) {
                 setOnClickListener { dialog.dismiss(); onPick(s) }
                 if (custom.contains(s)) {
                     setOnLongClickListener {
-                        c.confirm("نفسخ الختم؟", StampPresets.resolve(s.text), "فسخ") {
+                        c.confirm(c.getString(R.string.delete_stamp_q), StampPresets.resolve(s.text), c.getString(R.string.delete)) {
                             Prefs.saveCustomStamps(Prefs.customStamps().filterNot { it == s })
                             fill()
                         }
@@ -128,7 +129,7 @@ fun showStampsSheet(ctx: Context, onPick: (Stamp) -> Unit) {
             group.addView(chip)
         }
         group.addView(Chip(c).apply {
-            text = "+ ختم جديد"
+            text = c.getString(R.string.new_stamp_chip)
             typeface = Fonts.get("tajawal").bold
             setOnClickListener { newStampDialog(c) { s -> Prefs.saveCustomStamps(Prefs.customStamps() + s); fill() } }
         })
@@ -144,7 +145,7 @@ private fun newStampDialog(ctx: Context, onSave: (Stamp) -> Unit) {
         orientation = LinearLayout.VERTICAL
         setPadding(ctx.dp(22f), ctx.dp(8f), ctx.dp(22f), 0)
     }
-    val til = TextInputLayout(ctx, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply { hint = "نص الختم" }
+    val til = TextInputLayout(ctx, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply { hint = ctx.getString(R.string.stamp_text) }
     val input = TextInputEditText(til.context).apply {
         textDirection = View.TEXT_DIRECTION_FIRST_STRONG
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
@@ -157,10 +158,10 @@ private fun newStampDialog(ctx: Context, onSave: (Stamp) -> Unit) {
     box.addView(colors)
     val toggle = MaterialButtonToggleGroup(ctx).apply { isSingleSelection = true; isSelectionRequired = true }
     val handBtn = MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-        id = View.generateViewId(); text = "خط يدوي"
+        id = View.generateViewId(); text = ctx.getString(R.string.hand_font)
     }
     val plainBtn = MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-        id = View.generateViewId(); text = "خط عادي"
+        id = View.generateViewId(); text = ctx.getString(R.string.plain_font)
     }
     toggle.addView(handBtn)
     toggle.addView(plainBtn)
@@ -169,16 +170,16 @@ private fun newStampDialog(ctx: Context, onSave: (Stamp) -> Unit) {
         topMargin = ctx.dp(8f)
     })
     MaterialAlertDialogBuilder(ctx)
-        .setTitle("ختم جديد")
+        .setTitle(ctx.getString(R.string.new_stamp))
         .setView(box)
-        .setPositiveButton("سجّل") { _, _ ->
+        .setPositiveButton(ctx.getString(R.string.save_btn)) { _, _ ->
             val t = input.text?.toString()?.trim().orEmpty()
             if (t.isNotEmpty()) {
                 val hand = toggle.checkedButtonId == handBtn.id
                 onSave(Stamp(t, color, true, if (hand) "ruqaa" else "tajawal", true))
             }
         }
-        .setNegativeButton("إلغاء", null)
+        .setNegativeButton(ctx.getString(R.string.cancel), null)
         .show()
     showKeyboard(input)
 }
@@ -314,20 +315,20 @@ fun showSignaturePad(ctx: Context, onSaved: (Signature) -> Unit) {
     row.addSwatches(intArrayOf(0xFF0D2A6B.toInt(), Color.BLACK, 0xFF1565C0.toInt(), StampPresets.RED), pad.color) { pad.color = it }
     row.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
     row.addView(MaterialButton(ctx, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
-        text = "مسح"
+        text = ctx.getString(R.string.clear)
         setOnClickListener { pad.clear() }
     })
     box.addView(row)
     val d = MaterialAlertDialogBuilder(ctx)
-        .setTitle("امضي هنا بصبعك")
+        .setTitle(ctx.getString(R.string.sign_here))
         .setView(box)
-        .setPositiveButton("سجّل", null)
-        .setNegativeButton("إلغاء", null)
+        .setPositiveButton(ctx.getString(R.string.save_btn), null)
+        .setNegativeButton(ctx.getString(R.string.cancel), null)
         .create()
     d.setOnShowListener {
         d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val sig = pad.toSignature()
-            if (sig == null) { ctx.toast("امضي الأول"); return@setOnClickListener }
+            if (sig == null) { ctx.toast(ctx.getString(R.string.sign_first)); return@setOnClickListener }
             Prefs.saveSignatures(Prefs.signatures() + sig)
             d.dismiss()
             onSaved(sig)
@@ -345,7 +346,7 @@ fun showSignaturesSheet(ctx: Context, onPick: (Signature) -> Unit) {
         setPadding(c.dp(16f), c.dp(4f), c.dp(16f), c.dp(20f))
     }
     box.addView(TextView(c).apply {
-        text = "الإمضاءات"
+        text = c.getString(R.string.signatures)
         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
         typeface = Fonts.get("tajawal").bold
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
@@ -363,7 +364,7 @@ fun showSignaturesSheet(ctx: Context, onPick: (Signature) -> Unit) {
                 setCardBackgroundColor(Color.WHITE)
                 setOnClickListener { dialog.dismiss(); onPick(sig) }
                 setOnLongClickListener {
-                    c.confirm("نفسخ الإمضاء؟", "ما عادش يظهر في القائمة.", "فسخ") {
+                    c.confirm(c.getString(R.string.delete_sign_q), c.getString(R.string.delete_sign_msg), c.getString(R.string.delete)) {
                         Prefs.saveSignatures(Prefs.signatures().filterNot { it.id == sig.id })
                         fill()
                     }
@@ -378,7 +379,7 @@ fun showSignaturesSheet(ctx: Context, onPick: (Signature) -> Unit) {
     }
     fill()
     box.addView(MaterialButton(c).apply {
-        text = "إمضاء جديد"
+        text = c.getString(R.string.new_signature)
         setOnClickListener {
             dialog.dismiss()
             showSignaturePad(ctx) { onPick(it) }

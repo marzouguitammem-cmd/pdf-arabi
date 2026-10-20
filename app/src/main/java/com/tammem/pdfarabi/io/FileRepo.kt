@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.util.LruCache
 import android.widget.ImageView
 import com.tammem.pdfarabi.Prefs
+import com.tammem.pdfarabi.R
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -27,7 +28,9 @@ data class PdfFile(
     val folder: String,
     val path: String?,
     val uri: Uri?
-)
+) {
+    val isWord: Boolean get() = name.lowercase().let { it.endsWith(".docx") || it.endsWith(".doc") } || key.lowercase().endsWith(".docx")
+}
 
 object FileRepo {
 
@@ -42,8 +45,9 @@ object FileRepo {
             MediaStore.Files.FileColumns.DATE_MODIFIED,
             col
         )
-        val sel = "${MediaStore.Files.FileColumns.MIME_TYPE} = ? OR $col LIKE ?"
-        val args = arrayOf("application/pdf", "%.pdf")
+        val mime = MediaStore.Files.FileColumns.MIME_TYPE
+        val sel = "$mime = ? OR $col LIKE ? OR $mime = ? OR $col LIKE ?"
+        val args = arrayOf("application/pdf", "%.pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "%.docx")
         runCatching {
             ctx.contentResolver.query(
                 MediaStore.Files.getContentUri("external"), proj, sel, args,
@@ -55,22 +59,22 @@ object FileRepo {
                     if (!f.isFile) continue
                     if (path.contains("/Android/data/") || path.contains("/.")) continue
                     val name = c.getString(1) ?: f.name
-                    out[path] = PdfFile(path, name, f.length(), f.lastModified(), folderLabel(f), path, null)
+                    out[path] = PdfFile(path, name, f.length(), f.lastModified(), folderLabel(ctx, f), path, null)
                 }
             }
         }
         return out.values.sortedByDescending { it.modified }
     }
 
-    private fun folderLabel(f: File): String {
+    private fun folderLabel(ctx: Context, f: File): String {
         val parent = f.parentFile ?: return ""
         val root = Environment.getExternalStorageDirectory().path
         return when {
-            parent.path == root -> "الذاكرة"
-            parent.name.equals("Download", true) -> "التحميلات"
-            parent.path.contains("WhatsApp", true) -> "واتساب"
-            parent.path.contains("Telegram", true) -> "تيليغرام"
-            parent.name.equals("Documents", true) -> "المستندات"
+            parent.path == root -> ctx.getString(R.string.folder_storage)
+            parent.name.equals("Download", true) -> ctx.getString(R.string.folder_downloads)
+            parent.path.contains("WhatsApp", true) -> ctx.getString(R.string.folder_whatsapp)
+            parent.path.contains("Telegram", true) -> ctx.getString(R.string.folder_telegram)
+            parent.name.equals("Documents", true) -> ctx.getString(R.string.folder_documents)
             else -> parent.name
         }
     }
@@ -78,7 +82,7 @@ object FileRepo {
     fun recents(ctx: Context): List<PdfFile> = Prefs.recents().mapNotNull { r ->
         if (r.key.startsWith("/")) {
             val f = File(r.key)
-            if (!f.isFile) null else PdfFile(r.key, f.name, f.length(), r.time, folderLabel(f), r.key, null)
+            if (!f.isFile) null else PdfFile(r.key, f.name, f.length(), r.time, folderLabel(ctx, f), r.key, null)
         } else {
             val uri = Uri.parse(r.key)
             PdfFile(r.key, r.name, r.size, r.time, "", null, uri)
@@ -91,8 +95,8 @@ object FileRepo {
         return favs.mapNotNull { k ->
             byKey[k] ?: if (k.startsWith("/")) {
                 val f = File(k)
-                if (f.isFile) PdfFile(k, f.name, f.length(), f.lastModified(), folderLabel(f), k, null) else null
-            } else PdfFile(k, Prefs.recents().firstOrNull { it.key == k }?.name ?: "ملف", 0, 0, "", null, Uri.parse(k))
+                if (f.isFile) PdfFile(k, f.name, f.length(), f.lastModified(), folderLabel(ctx, f), k, null) else null
+            } else PdfFile(k, Prefs.recents().firstOrNull { it.key == k }?.name ?: ctx.getString(R.string.file_word), 0, 0, "", null, Uri.parse(k))
         }.sortedBy { it.name.lowercase() }
     }
 }
@@ -111,6 +115,12 @@ object FileThumbs {
     fun load(ctx: Context, f: PdfFile, iv: ImageView) {
         val key = "${f.key}#${f.modified}#${f.size}"
         iv.tag = key
+        if (f.isWord) {
+            iv.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            iv.setImageResource(com.tammem.pdfarabi.R.drawable.ic_word)
+            return
+        }
+        iv.scaleType = ImageView.ScaleType.CENTER_CROP
         mem.get(key)?.let { iv.setImageBitmap(it); return }
         iv.setImageDrawable(null)
         val app = ctx.applicationContext

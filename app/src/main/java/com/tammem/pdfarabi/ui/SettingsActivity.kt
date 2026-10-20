@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.appbar.MaterialToolbar
@@ -52,6 +53,17 @@ class SettingsActivity : AppCompatActivity() {
                 override fun afterTextChanged(s: Editable?) { Prefs.teacherName = s?.toString() ?: "" }
             })
         }
+        val lang = findViewById<MaterialButtonToggleGroup>(R.id.langGroup)
+        val curLang = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+        lang.check(if (curLang.startsWith("fr")) R.id.langFr else R.id.langAr)
+        lang.addOnButtonCheckedListener { _, id, checked ->
+            if (!checked) return@addOnButtonCheckedListener
+            val tag = if (id == R.id.langFr) "fr" else "ar-TN"
+            val now = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+            if (!now.startsWith(tag.substring(0, 2))) {
+                AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))
+            }
+        }
         val group = findViewById<MaterialButtonToggleGroup>(R.id.themeGroup)
         group.check(
             when (Prefs.themeMode) {
@@ -72,10 +84,7 @@ class SettingsActivity : AppCompatActivity() {
                 AppCompatDelegate.setDefaultNightMode(mode)
             }
         }
-        findViewById<TextView>(R.id.saveInfo).text =
-            "التعديلات تتسجّل في نفس الملف. النسخ الجديدة (مسح ضوئي، صور، دمج، نسخة باسم آخر) تتسجّل في:\n" +
-                "Documents/${Storage.FOLDER}\n" +
-                "والصفحات اللي تحوّلها لصور في:\nPictures/${Storage.FOLDER}"
-        findViewById<TextView>(R.id.version).text = "محرّر PDF — النسخة ${BuildConfig.VERSION_NAME}"
+        findViewById<TextView>(R.id.saveInfo).text = getString(R.string.set_save_info, Storage.FOLDER)
+        findViewById<TextView>(R.id.version).text = getString(R.string.version, getString(R.string.app_name), BuildConfig.VERSION_NAME)
     }
 }

@@ -105,17 +105,17 @@ class PagesDialog(
         items.addAll(model.pages)
         selected.retainAll(items.map { it.id }.toSet())
         if (::toolbar.isInitialized) {
-            toolbar.title = "الصفحات (${items.size})"
+            toolbar.title = act.getString(R.string.pages_count, items.size)
             adapter.notifyDataSetChanged()
             updateSelBar()
         }
     }
 
     private fun buildMenu(m: Menu) {
-        m.add(0, 1, 0, "صفحة فارغة").setIcon(R.drawable.ic_note_add).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-        m.add(0, 2, 1, "زيد ملف PDF").setIcon(R.drawable.ic_pdf).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-        m.add(0, 3, 2, "زيد صور").setIcon(R.drawable.ic_photos).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-        m.add(0, 4, 3, "مسح ضوئي").setIcon(R.drawable.ic_scan).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        m.add(0, 1, 0, act.getString(R.string.blank_page)).setIcon(R.drawable.ic_note_add).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        m.add(0, 2, 1, act.getString(R.string.add_pdf)).setIcon(R.drawable.ic_pdf).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        m.add(0, 3, 2, act.getString(R.string.add_images)).setIcon(R.drawable.ic_photos).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        m.add(0, 4, 3, act.getString(R.string.tool_scan)).setIcon(R.drawable.ic_scan).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
     }
 
     /** Insert position: after the last selected page, or at the end. */
@@ -141,12 +141,12 @@ class PagesDialog(
             val b = makeToolButton(dialog.context, icon, label, action)
             selBar.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
-        add(R.drawable.ic_rotate, "دوّر") { rotate(90) }
-        add(R.drawable.ic_rotate_left, "دوّر يسار") { rotate(-90) }
-        add(R.drawable.ic_copy, "نسخة") { duplicate() }
-        add(R.drawable.ic_extract, "استخراج") { cb.extract(items.filter { it.id in selected }) }
-        add(R.drawable.ic_delete, "فسخ") { delete() }
-        add(R.drawable.ic_select_all, "الكل") { toggleAll() }
+        add(R.drawable.ic_rotate, act.getString(R.string.rotate)) { rotate(90) }
+        add(R.drawable.ic_rotate_left, act.getString(R.string.rotate_left)) { rotate(-90) }
+        add(R.drawable.ic_copy, act.getString(R.string.copy)) { duplicate() }
+        add(R.drawable.ic_extract, act.getString(R.string.extract)) { cb.extract(items.filter { it.id in selected }) }
+        add(R.drawable.ic_delete, act.getString(R.string.delete)) { delete() }
+        add(R.drawable.ic_select_all, act.getString(R.string.all)) { toggleAll() }
     }
 
     @SuppressLint("NotifyDataSetChanged")
@@ -158,7 +158,7 @@ class PagesDialog(
 
     private fun updateSelBar() {
         selBar.visibility = if (selected.isEmpty()) View.GONE else View.VISIBLE
-        toolbar.subtitle = if (selected.isEmpty()) null else "مختارة: ${selected.size}"
+        toolbar.subtitle = if (selected.isEmpty()) null else act.getString(R.string.selected_n, selected.size)
     }
 
     private fun rotate(delta: Int) {
@@ -180,10 +180,10 @@ class PagesDialog(
     private fun delete() {
         if (selected.isEmpty()) return
         if (selected.size >= items.size) {
-            act.toast("لازم تبقى صفحة وحدة على الأقل")
+            act.toast(act.getString(R.string.keep_one_page))
             return
         }
-        act.confirm("نفسخ ${selected.size} صفحة؟", "تنجم ترجعهم بزرّ الرجوع للخلف.", "فسخ") {
+        act.confirm(act.getString(R.string.delete_pages_q, selected.size), act.getString(R.string.undo_possible), act.getString(R.string.delete)) {
             val before = model.pages.toList()
             val after = before.filter { it.id !in selected }
             selected.clear()

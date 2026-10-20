@@ -23,7 +23,7 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingBottom="8dp"
-        android:text="انقر على صفحة باش تمشيلها • اضغط مطوّل واسحب باش تبدّل بلاصتها • الدائرة باش تختار"
+        android:text="@string/pages_hint"
         android:textAlignment="viewStart"
         android:textAppearance="?attr/textAppearanceBodySmall"
         android:textColor="?attr/colorOnSurfaceVariant" />

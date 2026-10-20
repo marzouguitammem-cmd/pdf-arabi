@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -27,19 +28,50 @@
 
             <TextView
                 style="@style/SettingsHeader"
-                android:text="التعديل" />
+                android:layout_marginTop="4dp"
+                android:text="@string/set_language" />
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/langGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/langAr"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="العربية"
+                    tools:ignore="HardcodedText" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/langFr"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Français"
+                    tools:ignore="HardcodedText" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <TextView
+                style="@style/SettingsHeader"
+                android:text="@string/set_editing" />
 
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swRemove"
                 style="@style/SettingsSwitch"
-                android:text="كي نبدّل كلام، نفسخ الكلام القديم من الملف بالحق (ما عادش يتكوبيا ولا يتلوّج عليه)" />
+                android:text="@string/set_remove" />
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:hint="اسم المعلّم (يظهر في ختم «اطّلع عليه»)">
+                android:hint="@string/set_teacher">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/teacherName"
@@ -52,21 +84,21 @@
 
             <TextView
                 style="@style/SettingsHeader"
-                android:text="القراءة" />
+                android:text="@string/set_reading" />
 
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swScreen"
                 style="@style/SettingsSwitch"
-                android:text="خلّي الشاشة مشعولة وقت القراية" />
+                android:text="@string/set_screen" />
 
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swNight"
                 style="@style/SettingsSwitch"
-                android:text="القراية في الليل (صفحات داكنة)" />
+                android:text="@string/set_night" />
 
             <TextView
                 style="@style/SettingsHeader"
-                android:text="المظهر" />
+                android:text="@string/set_look" />
 
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/themeGroup"
@@ -81,7 +113,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="كيف التليفون" />
+                    android:text="@string/theme_system" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/themeLight"
@@ -89,7 +121,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="فاتح" />
+                    android:text="@string/theme_light" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/themeDark"
@@ -97,12 +129,12 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="داكن" />
+                    android:text="@string/theme_dark" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
             <TextView
                 style="@style/SettingsHeader"
-                android:text="أين تتسجّل الملفات" />
+                android:text="@string/set_where" />
 
             <TextView
                 android:id="@+id/saveInfo"

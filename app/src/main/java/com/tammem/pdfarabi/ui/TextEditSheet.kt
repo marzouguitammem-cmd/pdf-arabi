@@ -64,9 +64,9 @@ class TextEditSheet(
 
         val title = v.findViewById<TextView>(R.id.title)
         title.text = when (mode) {
-            Mode.ADD -> "نص جديد"
-            Mode.EDIT -> "تعديل النص"
-            Mode.REPLACE -> "تبديل الكلام"
+            Mode.ADD -> activity.getString(R.string.ts_new)
+            Mode.EDIT -> activity.getString(R.string.ts_edit)
+            Mode.REPLACE -> activity.getString(R.string.ts_replace)
         }
         if (extras.isNotEmpty()) {
             val content = (v as android.view.ViewGroup).getChildAt(0) as LinearLayout
@@ -93,7 +93,7 @@ class TextEditSheet(
         Fonts.all.forEach { f ->
             val chip = Chip(dialog.context).apply {
                 id = View.generateViewId()
-                this.text = f.label
+                this.text = dialog.context.getString(f.labelRes)
                 isCheckable = true
                 isCheckedIconVisible = false
                 typeface = f.regular
@@ -160,7 +160,7 @@ class TextEditSheet(
             sw.isChecked = removeOriginal
             sw.setOnCheckedChangeListener { _, c -> removeOriginal = c }
             hint.visibility = View.VISIBLE
-            hint.text = "اللون والحجم والخط اخترتهم وحدي باش يجيو كيف الكلام الأصلي. إذا فرّغت الخانة، الكلام القديم يتفسخ برك."
+            hint.text = activity.getString(R.string.ts_replace_hint)
         }
 
         input.addTextChangedListener(object : TextWatcher {

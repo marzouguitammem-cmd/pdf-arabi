@@ -49,6 +49,10 @@ object Prefs {
         get() = bool("perm_asked", false)
         set(v) = sp.edit().putBoolean("perm_asked", v).apply()
 
+    var wordView: String
+        get() = str("word_view", "page")
+        set(v) = sp.edit().putString("word_view", v).apply()
+
     var homeTab: Int
         get() = int("home_tab", 0)
         set(v) = sp.edit().putInt("home_tab", v).apply()

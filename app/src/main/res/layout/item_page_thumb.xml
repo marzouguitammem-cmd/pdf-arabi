@@ -31,7 +31,7 @@
         android:layout_height="36dp"
         android:layout_gravity="top|end"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="اختيار"
+        android:contentDescription="@string/select_cd"
         android:padding="5dp"
         android:src="@drawable/ic_check_circle" />
 </FrameLayout>

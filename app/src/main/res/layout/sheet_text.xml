@@ -32,14 +32,14 @@
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="إلغاء" />
+                android:text="@string/cancel" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/done"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
-                android:text="تمّ"
+                android:text="@string/done"
                 app:icon="@drawable/ic_check" />
         </LinearLayout>
 
@@ -49,7 +49,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="اكتب هنا">
+            android:hint="@string/write_here">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/input"
@@ -89,7 +89,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="الحجم"
+                android:text="@string/size"
                 android:textAppearance="?attr/textAppearanceLabelLarge" />
 
             <com.google.android.material.button.MaterialButton
@@ -166,7 +166,7 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="48dp"
                     android:layout_height="wrap_content"
-                    android:contentDescription="يمين"
+                    android:contentDescription="@string/align_right"
                     android:padding="0dp"
                     app:icon="@drawable/ic_align_right"
                     app:iconGravity="textStart"
@@ -177,7 +177,7 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="48dp"
                     android:layout_height="wrap_content"
-                    android:contentDescription="وسط"
+                    android:contentDescription="@string/align_center"
                     android:padding="0dp"
                     app:icon="@drawable/ic_align_center"
                     app:iconGravity="textStart"
@@ -188,7 +188,7 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="48dp"
                     android:layout_height="wrap_content"
-                    android:contentDescription="يسار"
+                    android:contentDescription="@string/align_left"
                     android:padding="0dp"
                     app:icon="@drawable/ic_align_left"
                     app:iconGravity="textStart"
@@ -206,7 +206,7 @@
                 android:layout_width="48dp"
                 android:layout_height="wrap_content"
                 android:checkable="true"
-                android:contentDescription="عريض"
+                android:contentDescription="@string/bold"
                 android:padding="0dp"
                 app:icon="@drawable/ic_bold"
                 app:iconGravity="textStart"
@@ -219,7 +219,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:checkable="true"
-                android:contentDescription="خلفية بيضاء"
+                android:contentDescription="@string/white_bg"
                 android:padding="0dp"
                 app:icon="@drawable/ic_fill"
                 app:iconGravity="textStart"
@@ -232,7 +232,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:checkable="true"
-                android:contentDescription="إطار"
+                android:contentDescription="@string/frame"
                 android:padding="0dp"
                 app:icon="@drawable/ic_border"
                 app:iconGravity="textStart"
@@ -244,7 +244,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="نحّي الكلام القديم من الملف بالحق"
+            android:text="@string/remove_original"
             android:visibility="gone" />
 
         <TextView

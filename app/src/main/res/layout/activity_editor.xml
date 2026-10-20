@@ -68,7 +68,7 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="السابق"
+                android:contentDescription="@string/prev"
                 android:src="@drawable/ic_up" />
 
             <ImageButton
@@ -76,7 +76,7 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="التالي"
+                android:contentDescription="@string/next_cd"
                 android:src="@drawable/ic_down" />
 
             <ImageButton
@@ -84,7 +84,7 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="غلق"
+                android:contentDescription="@string/close"
                 android:src="@drawable/ic_close" />
         </LinearLayout>
 

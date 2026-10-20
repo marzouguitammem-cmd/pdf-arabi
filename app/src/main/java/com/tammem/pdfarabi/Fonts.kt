@@ -5,7 +5,7 @@ import android.graphics.Typeface
 /** Fonts bundled with the app (Arabic shaping is done by Android, so letters always join correctly). */
 object Fonts {
 
-    class Face(val id: String, val label: String, regular: () -> Typeface, bold: () -> Typeface) {
+    class Face(val id: String, val labelRes: Int, regular: () -> Typeface, bold: () -> Typeface) {
         val regular: Typeface by lazy(regular)
         val bold: Typeface by lazy(bold)
     }
@@ -18,11 +18,11 @@ object Fonts {
         }
 
     val all: List<Face> = listOf(
-        Face("amiri", "نسخ (أميري)", { asset("Amiri-Regular.ttf") }, { asset("Amiri-Bold.ttf") }),
-        Face("tajawal", "عصري (تجوّل)", { asset("Tajawal-Regular.ttf") }, { asset("Tajawal-Bold.ttf") }),
-        Face("ruqaa", "رقعة (يدوي)", { asset("ArefRuqaa-Regular.ttf") }, { asset("ArefRuqaa-Bold.ttf") }),
-        Face("system", "خط التليفون", { Typeface.DEFAULT }, { Typeface.DEFAULT_BOLD }),
-        Face("serif", "Serif (Times)", { Typeface.SERIF }, { Typeface.create(Typeface.SERIF, Typeface.BOLD) })
+        Face("amiri", R.string.f_naskh, { asset("Amiri-Regular.ttf") }, { asset("Amiri-Bold.ttf") }),
+        Face("tajawal", R.string.f_modern, { asset("Tajawal-Regular.ttf") }, { asset("Tajawal-Bold.ttf") }),
+        Face("ruqaa", R.string.f_ruqaa, { asset("ArefRuqaa-Regular.ttf") }, { asset("ArefRuqaa-Bold.ttf") }),
+        Face("system", R.string.f_system, { Typeface.DEFAULT }, { Typeface.DEFAULT_BOLD }),
+        Face("serif", R.string.f_serif, { Typeface.SERIF }, { Typeface.create(Typeface.SERIF, Typeface.BOLD) })
     )
 
     fun get(id: String): Face = all.firstOrNull { it.id == id } ?: all[0]

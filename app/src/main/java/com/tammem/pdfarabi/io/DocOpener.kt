@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import com.tammem.pdfarabi.R
 import com.tammem.pdfarabi.model.Origin
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import java.io.File
@@ -40,7 +41,7 @@ object DocOpener {
         intent.getStringExtra(EXTRA_WORK)?.let { work ->
             val f = File(work)
             val path = intent.getStringExtra(EXTRA_PATH)
-            val title = intent.getStringExtra(EXTRA_TITLE) ?: "ملف جديد"
+            val title = intent.getStringExtra(EXTRA_TITLE) ?: ctx.getString(R.string.untitled)
             return if (path != null) Prepared(listOf(f), title, Origin.Path(path), path, stampOf(File(path)), f.length())
             else Prepared(listOf(f), title, Origin.None, null, "", f.length())
         }
@@ -50,7 +51,7 @@ object DocOpener {
                 Storage.copyUri(ctx, u, dest)
                 dest
             }
-            return Prepared(files, intent.getStringExtra(EXTRA_TITLE) ?: "ملف مدمج", Origin.None, null, "", files.sumOf { it.length() })
+            return Prepared(files, intent.getStringExtra(EXTRA_TITLE) ?: ctx.getString(R.string.merged_title), Origin.None, null, "", files.sumOf { it.length() })
         }
         intent.getStringExtra(EXTRA_PATH)?.let { return fromPath(ctx, it) }
         val uri = intent.data ?: streamUri(intent) ?: error("nothing to open")
