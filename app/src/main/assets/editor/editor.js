@@ -51,7 +51,8 @@
   };
 
   function isRun(n) {
-    return n && n.nodeType === 1 && n.tagName === 'SPAN' && !n.dataset.k;
+    // runs carry no class; classed spans are page breaks or the inside of a text box / field preview
+    return n && n.nodeType === 1 && n.tagName === 'SPAN' && !n.dataset.k && !n.className;
   }
 
   function styleRun(s) {
@@ -125,7 +126,7 @@
     if (D.defaults) css += '#body,.hf{' + styleVars(D.defaults) + '}\n';
     var S = D.styles || {};
     Object.keys(S).forEach(function (id) {
-      css += 'p[data-st="' + cssId(id) + '"]{' + styleVars(S[id]) + '}\n';
+      css += 'p[data-st="' + cssId(id) + '"],.pp[data-st="' + cssId(id) + '"]{' + styleVars(S[id]) + '}\n';
     });
     if (D.page) {
       var pg = D.page;
@@ -140,7 +141,7 @@
   }
 
   function styleAll(root) {
-    var ps = (root || document).querySelectorAll('p');
+    var ps = (root || document).querySelectorAll('p, .pp');
     for (var i = 0; i < ps.length; i++) styleP(ps[i]);
     var ss = (root || document).querySelectorAll('span');
     for (var j = 0; j < ss.length; j++) if (isRun(ss[j])) styleRun(ss[j]);
@@ -1006,7 +1007,7 @@
       tb.appendChild(tr);
     }
     var container = p ? p.parentNode : body;
-    if (p && p.textContent.replace(ZW, '') === '' && !p.querySelector('img,.raw')) {
+    if (p && p.textContent.replace(ZW, '') === '' && !p.querySelector('img,.raw:not(.bm)')) {
       container.replaceChild(t, p);
     } else if (p) {
       container.insertBefore(t, p.nextSibling);
@@ -1499,7 +1500,7 @@
   // ------------------------------------------------------------------ input handling
 
   function isEmptyP(p) {
-    return p.textContent.replace(ZW, '').trim() === '' && !p.querySelector('img,.raw,.pb');
+    return p.textContent.replace(ZW, '').trim() === '' && !p.querySelector('img,.raw:not(.bm),.pb');
   }
 
   function atStartOf(r, p) {

@@ -80,7 +80,52 @@ class DocxPackage(val entries: LinkedHashMap<String, ByteArray>) {
                 }
             }
             if (map.isEmpty()) error("not a docx")
+            if (map.keys.none { it.endsWith(".rels") }) error("not a Word document")
+            fromStrict(map)
             return DocxPackage(map)
+        }
+
+        private const val P = "http://purl.oclc.org/ooxml/"
+        private const val T = "http://schemas.openxmlformats.org/"
+
+        /** Strict Open XML namespaces and their transitional twins (specific names before their prefixes). */
+        private val STRICT = listOf(
+            "${P}officeDocument/relationships/metadata/core-properties" to "${T}package/2006/relationships/metadata/core-properties",
+            "${P}officeDocument/relationships/metadata/thumbnail" to "${T}package/2006/relationships/metadata/thumbnail",
+            "${P}officeDocument/relationships/extendedProperties" to "${T}officeDocument/2006/relationships/extended-properties",
+            "${P}officeDocument/relationships/customProperties" to "${T}officeDocument/2006/relationships/custom-properties",
+            "${P}officeDocument/relationships" to "${T}officeDocument/2006/relationships",
+            "${P}officeDocument/extendedProperties" to "${T}officeDocument/2006/extended-properties",
+            "${P}officeDocument/customProperties" to "${T}officeDocument/2006/custom-properties",
+            "${P}officeDocument/docPropsVTypes" to "${T}officeDocument/2006/docPropsVTypes",
+            "${P}officeDocument/sharedTypes" to "${T}officeDocument/2006/sharedTypes",
+            "${P}officeDocument/bibliography" to "${T}officeDocument/2006/bibliography",
+            "${P}officeDocument/math" to "${T}officeDocument/2006/math",
+            "${P}wordprocessingml/main" to "${T}wordprocessingml/2006/main",
+            "${P}drawingml/wordprocessingDrawing" to "${T}drawingml/2006/wordprocessingDrawing",
+            "${P}drawingml/main" to "${T}drawingml/2006/main",
+            "${P}drawingml/picture" to "${T}drawingml/2006/picture",
+            "${P}drawingml/chart" to "${T}drawingml/2006/chart",
+            "${P}drawingml/diagram" to "${T}drawingml/2006/diagram",
+            "${P}drawingml/lockedCanvas" to "${T}drawingml/2006/lockedCanvas",
+        )
+
+        /**
+         * Word can save "Strict Open XML" files, which use other namespace names. They are turned into the
+         * usual (transitional) names when the file is opened, so the whole app reads them and Word reopens the save.
+         */
+        private fun fromStrict(map: LinkedHashMap<String, ByteArray>) {
+            val rootRels = map["_rels/.rels"]?.toString(Charsets.UTF_8) ?: return
+            if (!rootRels.contains(P)) return
+            for ((name, bytes) in map.entries.toList()) {
+                val low = name.lowercase()
+                if (!(low.endsWith(".xml") || low.endsWith(".rels"))) continue
+                var t = bytes.toString(Charsets.UTF_8)
+                if (!t.contains(P) && !t.contains("conformance=")) continue
+                for ((a, b) in STRICT) t = t.replace(a, b)
+                t = t.replace(Regex("""\s(\w+:)?conformance="strict""""), "")
+                map[name] = t.toByteArray(Charsets.UTF_8)
+            }
         }
 
         fun parseRels(bytes: ByteArray): List<Rel> {

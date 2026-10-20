@@ -26,6 +26,8 @@ class DocxWriter(private val pkg: DocxPackage, private val conv: Converted) {
     private val listKinds = LinkedHashSet<String>()
     private var needTableGrid = false
     private val pCount = HashMap<Int, Int>()
+    /** Bookmark halves and field parts still in the document; a piece whose partner was deleted is not written. */
+    private val present = HashSet<String>()
     private val pSeen = HashMap<Int, Int>()
     private val newMediaExt = HashSet<String>()
 
@@ -90,11 +92,27 @@ class DocxWriter(private val pkg: DocxPackage, private val conv: Converted) {
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             when (o.optString("t")) {
-                "p" -> if (o.has("x")) { val x = o.getInt("x"); pCount[x] = (pCount[x] ?: 0) + 1 }
+                "p" -> {
+                    if (o.has("x")) { val x = o.getInt("x"); pCount[x] = (pCount[x] ?: 0) + 1 }
+                    o.optJSONArray("c")?.let { collectBookmarks(it) }
+                }
                 "tbl" -> forCells(o) { countParagraphs(it.getJSONArray("c")) }
+                "rawb" -> (store.items.getOrNull(o.optInt("x", -1)) as? RawItem)?.let { present += it.provides }
             }
         }
     }
+
+    private fun collectBookmarks(arr: JSONArray) {
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            when (o.optString("t")) {
+                "raw" -> (store.items.getOrNull(o.optInt("x", -1)) as? RawItem)?.let { present += it.provides }
+                "a" -> o.optJSONArray("c")?.let { collectBookmarks(it) }
+            }
+        }
+    }
+
+    private fun keepRaw(item: RawItem): Boolean = item.requires.all { it in present }
 
     private fun forCells(t: JSONObject, fn: (JSONObject) -> Unit) {
         val rows = t.getJSONArray("rows")
@@ -240,7 +258,7 @@ class DocxWriter(private val pkg: DocxPackage, private val conv: Converted) {
                 "r" -> writeRun(o, sb)
                 "br" -> sb.append("<w:r><w:br/></w:r>")
                 "pb" -> sb.append("<w:r><w:br w:type=\"page\"/></w:r>")
-                "raw" -> (store.items.getOrNull(o.optInt("x", -1)) as? RawItem)?.let { sb.append(it.xml) }
+                "raw" -> (store.items.getOrNull(o.optInt("x", -1)) as? RawItem)?.takeIf { keepRaw(it) }?.let { sb.append(it.xml) }
                 "img" -> writeImage(o, sb)
                 "a" -> writeLink(o, sb, rtl)
             }

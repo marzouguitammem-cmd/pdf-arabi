@@ -71,7 +71,11 @@ class NumDef(val numId: String, val abs: String, val levels: List<NumLevel>)
 class PItem(val el: Element, val hadNumPr: Boolean)
 class RItem(val el: Element)
 class ImgItem(val run: Element, val drawing: Element, val wPx: Int, val hPx: Int)
-class RawItem(val xml: String)
+/**
+ * Untouched XML. [provides] names the bookmark halves and field parts it holds; it is written back only when all of
+ * [requires] is still in the document, so a bookmark or a field cut in two by an edit never reaches the file.
+ */
+class RawItem(val xml: String, val provides: List<String> = emptyList(), val requires: List<String> = emptyList())
 class LinkItem(val el: Element)
 class TblItem(val el: Element, val grid: List<Int>)
 class TrItem(val el: Element)
@@ -146,7 +150,13 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
     private var themeMajor = "Times New Roman"; private var themeMinor = "Calibri"
     private var themeMajorCs = "Times New Roman"; private var themeMinorCs = "Arial"
     private var curPart = pkg.mainPart
-    private var dropDepth = 0
+    /** A field (table of contents, …) whose start was seen but whose end is in a later run or paragraph. */
+    private class OpenField(val id: Int) { val parts = ArrayList<String>(); var inResult = false; var depth = 0 }
+    /** Fields still open, and bookmarks found between paragraphs, waiting for the next paragraph. */
+    private class FlowState { val open = ArrayList<OpenField>(); val pendingMarks = ArrayList<Element>() }
+    private var flow = FlowState()
+    private var fieldSeq = 0
+    private val goBack = HashSet<String>()
     private var noteCounter = 0
     private var maxDocPr = 0
     private var rtlVotes = 0
@@ -560,6 +570,21 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
     // ------------------------------------------------------------------ blocks
 
     private fun blocks(container: Element, sb: StringBuilder, display: Boolean) {
+        val startLen = sb.length
+        blockKids(container, sb, display)
+        // bookmarks after the last paragraph (Word often ends one there) go at the end of that paragraph
+        if (!display && flow.pendingMarks.isNotEmpty()) {
+            val idx = sb.lastIndexOf("</p>")
+            if (idx >= startLen) {
+                val marks = StringBuilder()
+                flow.pendingMarks.forEach { bookmark(it, marks) }
+                sb.insert(idx, marks)
+                flow.pendingMarks.clear()
+            }
+        }
+    }
+
+    private fun blockKids(container: Element, sb: StringBuilder, display: Boolean) {
         for (c in Ox.kids(container)) {
             if (c.namespaceURI == Ox.W) {
                 when (c.localName) {
@@ -567,7 +592,8 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
                     "tbl" -> table(c, sb, display)
                     "sdt" -> Ox.child(c, "sdtContent")?.let { blocks(it, sb, display) }
                     "customXml", "smartTag" -> blocks(c, sb, display)
-                    "sectPr", "tcPr", "trPr", "tblPr", "tblGrid", "tblPrEx", "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd", "commentRangeStart",
+                    "bookmarkStart", "bookmarkEnd" -> if (!display) flow.pendingMarks += c
+                    "sectPr", "tcPr", "trPr", "tblPr", "tblGrid", "tblPrEx", "proofErr", "permStart", "permEnd", "commentRangeStart",
                     "commentRangeEnd", "moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd" -> {}
                     "ins", "moveTo" -> blocks(c, sb, display)
                     "del", "moveFrom" -> {}
@@ -581,7 +607,8 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
 
     private fun rawBlock(c: Element, sb: StringBuilder, display: Boolean) {
         if (display) return
-        val x = store.add(RawItem(Ox.xml(c)))
+        val xml = Ox.xml(c)
+        val x = store.add(RawItem(xml, marksIn(xml)))
         sb.append("<div class=\"rawb ph\" data-x=\"").append(x).append("\" contenteditable=\"false\">")
             .append(Ox.esc(strings.shape)).append("</div>")
     }
@@ -631,12 +658,52 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         if (xs.isNotEmpty()) attr(sb, "data-xs", xs.toString())
         sb.append('>')
         val start = sb.length
+        if (!display && flow.pendingMarks.isNotEmpty()) {
+            flow.pendingMarks.forEach { bookmark(it, sb) }
+            flow.pendingMarks.clear()
+        }
         inline(Ox.kids(p), sb, display, dir)
         if (sb.length == start) sb.append("<br>")
         sb.append("</p>")
     }
 
     // ------------------------------------------------------------------ inline content
+
+    /** A bookmark (target of a table of contents entry or a cross-reference): kept as an invisible mark. */
+    private fun bookmark(c: Element, sb: StringBuilder) {
+        val id = Ox.a(c, "id") ?: return
+        val start = c.localName == "bookmarkStart"
+        if (start && Ox.a(c, "name") == "_GoBack") { goBack += id; return }
+        if (!start && id in goBack) return
+        val item = if (start) RawItem(Ox.xml(c), listOf("bs:$id"), listOf("be:$id"))
+                   else RawItem(Ox.xml(c), listOf("be:$id"), listOf("bs:$id"))
+        sb.append("<span class=\"raw bm\" data-k=\"raw\" data-x=\"").append(store.add(item)).append("\" contenteditable=\"false\"></span>")
+    }
+
+    /** One run of a field's code (or its end mark) that belongs to a field spanning several runs or paragraphs. */
+    private fun fieldPart(f: OpenField, c: Element, sb: StringBuilder, display: Boolean) {
+        if (display) return
+        val token = "f${f.id}:${f.parts.size}"
+        f.parts += token
+        val xml = Ox.xml(c)
+        val item = RawItem(xml, listOf(token) + marksIn(xml), f.parts)
+        sb.append("<span class=\"raw bm\" data-k=\"raw\" data-x=\"").append(store.add(item)).append("\" contenteditable=\"false\"></span>")
+    }
+
+    private val markRe = Regex("""<(?:\w+:)?bookmark(Start|End)\b[^>]*?\s(?:\w+:)?id="([^"]*)"""")
+
+    /** Bookmark halves inside a piece of XML kept as it is. */
+    private fun marksIn(xml: String): List<String> {
+        if (!xml.contains("bookmark")) return emptyList()
+        return markRe.findAll(xml).map { (if (it.groupValues[1] == "Start") "bs:" else "be:") + it.groupValues[2] }.toList()
+    }
+
+    /** Text boxes, headers and footers are read on their own, without the body's open fields. */
+    private inline fun <T> nested(block: () -> T): T {
+        val saved = flow
+        flow = FlowState()
+        try { return block() } finally { flow = saved }
+    }
 
     private fun hasFld(r: Element, type: String): Boolean =
         Ox.children(r, "fldChar").any { Ox.a(it, "fldCharType") == type }
@@ -646,13 +713,23 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         while (i < kids.size) {
             val c = kids[i]
             val isRun = Ox.isW(c, "r")
-            if (dropDepth > 0 && isRun) {
-                when {
-                    hasFld(c, "begin") -> dropDepth++
-                    hasFld(c, "end") -> dropDepth--
-                    hasFld(c, "separate") || Ox.child(c, "instrText") != null -> {}
-                    else -> run(c, sb, display)
+            val top = flow.open.lastOrNull()
+            if (isRun && top != null && !top.inResult) {
+                // the code of a field that started earlier: kept as it is, out of sight
+                var closed = false
+                for (fc in Ox.children(c, "fldChar")) when (Ox.a(fc, "fldCharType")) {
+                    "begin" -> top.depth++
+                    "separate" -> if (top.depth == 0) top.inResult = true
+                    "end" -> if (top.depth == 0) closed = true else top.depth--
                 }
+                fieldPart(top, c, sb, display)
+                if (closed) flow.open.removeAt(flow.open.size - 1)
+                i++
+                continue
+            }
+            if (isRun && top != null && top.inResult && hasFld(c, "end") && !hasFld(c, "begin")) {
+                fieldPart(top, c, sb, display)
+                flow.open.removeAt(flow.open.size - 1)
                 i++
                 continue
             }
@@ -669,7 +746,16 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
                     field(kids.subList(i, end + 1), sb, display)
                     i = end + 1
                 } else {
-                    dropDepth = 1
+                    // ends in a later paragraph (a table of contents): its code is kept, its result stays editable
+                    val f = OpenField(++fieldSeq)
+                    flow.open += f
+                    var seenBegin = false
+                    for (fc in Ox.children(c, "fldChar")) when (Ox.a(fc, "fldCharType")) {
+                        "begin" -> if (seenBegin) f.depth++ else seenBegin = true
+                        "separate" -> if (f.depth == 0) f.inResult = true
+                        "end" -> if (f.depth > 0) f.depth--
+                    }
+                    fieldPart(f, c, sb, display)
                     i++
                 }
                 continue
@@ -684,7 +770,8 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
                         val txt = Ox.findAll(c, "t").joinToString("") { it.textContent }
                         rawInline(Ox.xml(c), "<span class=\"raw fld\">" + Ox.esc(txt.ifEmpty { "#" }) + "</span>", sb, display)
                     }
-                    "pPr", "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd", "commentRangeStart",
+                    "bookmarkStart", "bookmarkEnd" -> if (!display) bookmark(c, sb)
+                    "pPr", "proofErr", "permStart", "permEnd", "commentRangeStart",
                     "commentRangeEnd", "del", "moveFrom", "moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart",
                     "moveToRangeEnd", "lastRenderedPageBreak" -> {}
                     else -> rawInline(Ox.xml(c), "", sb, display)
@@ -704,7 +791,7 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
             sb.append(previewHtml.ifEmpty { "" })
             return
         }
-        val x = store.add(RawItem(xml))
+        val x = store.add(RawItem(xml, marksIn(xml)))
         val inner = previewHtml.ifEmpty { "<span class=\"raw\"></span>" }
         // the outer span carries the identity; the preview inside is only for looks
         sb.append("<span class=\"raw\" data-k=\"raw\" data-x=\"").append(x).append("\" contenteditable=\"false\">")
@@ -809,7 +896,14 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
                     }
                     "cr" -> { flush(); sb.append("<br data-k=\"br\">") }
                     "noBreakHyphen" -> buf.append('‑')
-                    "sym" -> buf.append(symChar(c))
+                    "sym" -> {
+                        // a Symbol / Wingdings character (☐, ✓, ➢…) stays exactly as it is in the file
+                        flush()
+                        val st = StringBuilder()
+                        data["sz"]?.toIntOrNull()?.let { st.append("font-size:").append(it / 2.0).append("pt;") }
+                        data["c"]?.takeIf { it.length == 6 }?.let { st.append("color:#").append(it).append(';') }
+                        rawInline(wrapRun(rPr, c), "<span class=\"raw sym\" style=\"$st\">" + Ox.esc(symChar(c)) + "</span>", sb, display)
+                    }
                     "drawing" -> { flush(); drawing(c, r, rPr, sb, display) }
                     "pict", "object" -> { flush(); rawInline(wrapRun(rPr, c), pictPreview(c), sb, display) }
                     "footnoteReference", "endnoteReference" -> {
@@ -897,11 +991,8 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         val tx = Ox.find(container, "txbxContent")
         if (tx != null) {
             val inner = StringBuilder()
-            val saved = dropDepth
-            dropDepth = 0
-            blocks(tx, inner, true)
-            dropDepth = saved
-            return "<span class=\"raw box\" style=\"width:${w}px;min-height:${h}px\">$inner</span>"
+            nested { blocks(tx, inner, true) }
+            return "<span class=\"raw box\" style=\"width:${w}px;min-height:${h}px\">${phrasing(inner)}</span>"
         }
         val blip = Ox.find(container, "blip", Ox.A)
         val media = mediaPath(blip?.getAttributeNS(Ox.R, "embed"))
@@ -924,11 +1015,23 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         val tx = Ox.find(c, "txbxContent")
         if (tx != null) {
             val inner = StringBuilder()
-            blocks(tx, inner, true)
-            return "<span class=\"raw box\" style=\"width:${w}px;min-height:${h}px\">$inner</span>"
+            nested { blocks(tx, inner, true) }
+            return "<span class=\"raw box\" style=\"width:${w}px;min-height:${h}px\">${phrasing(inner)}</span>"
         }
         return "<span class=\"raw ph\" style=\"width:${w}px;height:${h}px\">${Ox.esc(strings.shape)}</span>"
     }
+
+    /**
+     * A text box sits inside a paragraph, and a <p> or <table> there would make the HTML parser close that paragraph
+     * (its text would then turn into real, duplicated paragraphs). Its content is drawn with spans instead.
+     */
+    private fun phrasing(html: CharSequence): String = html.toString()
+        .replace(Regex("<colgroup>.*?</colgroup>"), "")
+        .replace("<tbody>", "").replace("</tbody>", "")
+        .replace("<table class=\"tbl\"", "<span class=\"ptbl\"").replace("</table>", "</span>")
+        .replace(Regex("<p(?=[\\s>])"), "<span class=\"pp\"").replace("</p>", "</span>")
+        .replace(Regex("<tr(?=[\\s>])"), "<span class=\"ptr\"").replace("</tr>", "</span>")
+        .replace(Regex("<td(?=[\\s>])"), "<span class=\"ptd\"").replace("</td>", "</span>")
 
     private fun cssLen(v: String, unit: String): Int {
         val d = v.toDoubleOrNull() ?: return 60
@@ -1017,6 +1120,10 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
             }
         }
         collectRows(t)
+        // bookmarks between rows or after the last one: starts go into the first cell, ends after the table
+        val tblMarks = if (display) emptyList() else
+            (Ox.kids(t) + rows.flatMap { Ox.kids(it) }).filter { Ox.isW(it, "bookmarkStart") || Ox.isW(it, "bookmarkEnd") }
+        flow.pendingMarks += tblMarks.filter { it.localName == "bookmarkStart" }
 
         // pass 1: grid positions and vertical merges
         val layout = ArrayList<List<CellInfo>>()
@@ -1123,6 +1230,7 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
             sb.append("</tr>")
         }
         sb.append("</tbody></table>")
+        flow.pendingMarks += tblMarks.filter { it.localName == "bookmarkEnd" }
     }
 
     // ------------------------------------------------------------------ headers & footers
@@ -1139,7 +1247,7 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         curPart = part
         val sb = StringBuilder()
         val votesR = rtlVotes; val votesL = ltrVotes
-        runCatching { blocks(doc.documentElement, sb, true) }
+        runCatching { nested { blocks(doc.documentElement, sb, true) } }
         rtlVotes = votesR; ltrVotes = votesL
         curPart = saved
         val text = sb.toString()
