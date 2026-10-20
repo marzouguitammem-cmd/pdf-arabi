@@ -90,11 +90,12 @@ object Redactor {
             val cx = (gx0 + gx1) / 2f
             val cy = (gy0 + gy1) / 2f
             val garea = max(1e-3f, (gx1 - gx0) * (gy1 - gy0))
+            // Only letters that really sit under the cover: centre inside AND most of the glyph inside.
             for (r in rects) {
-                if (cx in r.x0..r.x1 && cy in r.y0..r.y1) return true
+                if (cx !in r.x0..r.x1 || cy !in r.y0..r.y1) continue
                 val ix = min(gx1, r.x1) - max(gx0, r.x0)
                 val iy = min(gy1, r.y1) - max(gy0, r.y0)
-                if (ix > 0 && iy > 0 && ix * iy / garea > 0.55f) return true
+                if (ix > 0 && iy > 0 && ix * iy / garea > 0.6f) return true
             }
             return false
         }

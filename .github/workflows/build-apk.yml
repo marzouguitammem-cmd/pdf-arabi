@@ -27,10 +27,27 @@ jobs:
           ./gradlew --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
           exit ${PIPESTATUS[0]}
 
-      - name: Show compile errors
+      - name: Compiler errors (1)
         if: failure()
         run: |
-          grep -E "^e: |error:|FAILURE|What went wrong" -A3 build.log | head -200 || true
+          P="file:///home/runner/work/pdf-arabi/pdf-arabi/app/src/main/"
+          grep -E "^e: |ERROR:|error: " build.log | sed "s#$P##" | sort -u | sed -n '1,10p' | while IFS= read -r l; do echo "::error::$l"; done
+          grep -A2 "What went wrong" build.log | head -8 | while IFS= read -r l; do echo "::warning::$l"; done
+      - name: Compiler errors (2)
+        if: failure()
+        run: |
+          P="file:///home/runner/work/pdf-arabi/pdf-arabi/app/src/main/"
+          grep -E "^e: |ERROR:|error: " build.log | sed "s#$P##" | sort -u | sed -n '11,20p' | while IFS= read -r l; do echo "::error::$l"; done
+      - name: Compiler errors (3)
+        if: failure()
+        run: |
+          P="file:///home/runner/work/pdf-arabi/pdf-arabi/app/src/main/"
+          grep -E "^e: |ERROR:|error: " build.log | sed "s#$P##" | sort -u | sed -n '21,30p' | while IFS= read -r l; do echo "::error::$l"; done
+      - name: Compiler warnings
+        if: always()
+        run: |
+          P="file:///home/runner/work/pdf-arabi/pdf-arabi/app/src/main/"
+          grep -E "^w: " build.log | grep -vi deprecat | sed "s#$P##" | sort -u | sed -n '1,10p' | while IFS= read -r l; do echo "::warning::$l"; done || true
 
       - name: Collect APK
         run: |

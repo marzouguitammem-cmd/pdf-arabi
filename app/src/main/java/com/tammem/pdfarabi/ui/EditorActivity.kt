@@ -627,6 +627,7 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 widthChips(floatArrayOf(0.8f, 1.6f, 3f), arrayOf("رقيق", "متوسط", "عريض"), pdfView.penWidth) {
                     pdfView.penWidth = it; Prefs.penWidth = it
                 }
+                hint("• تتحرّك في الصفحة بزوز صوابع")
             }
             Tool.HIGHLIGHT -> {
                 options.addSwatches(Palette.highlight, pdfView.hlColor) { pdfView.hlColor = it; Prefs.hlColor = it }
@@ -634,8 +635,9 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                 widthChips(floatArrayOf(8f, 12f, 18f), arrayOf("رقيق", "متوسط", "عريض"), pdfView.hlWidth) {
                     pdfView.hlWidth = it; Prefs.hlWidth = it
                 }
+                hint("• الخط المستقيم يتعدّل وحدو")
             }
-            Tool.ERASER -> hint("امسح بصبعك على الخطوط والعلامات باش تفسخهم")
+            Tool.ERASER -> hint("امسح بصبعك على الخطوط والعلامات باش تفسخهم • تتحرّك بزوز صوابع")
             Tool.SHAPE -> {
                 val kinds = listOf(
                     ShapeKind.RECT to R.drawable.ic_shape_rect, ShapeKind.OVAL to R.drawable.ic_shape_oval,
