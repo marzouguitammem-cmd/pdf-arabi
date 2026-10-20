@@ -915,8 +915,11 @@ class EditorActivity : AppCompatActivity(), PdfView.Host {
                     val b = sel.box
                     size = sel.size
                     limit = RectF(b.left - size * 0.12f, b.top - size * 0.08f, b.right + size * 0.12f, b.bottom + size * 0.1f)
-                    rtl = sel.rtl
-                    prefill = sel.text
+                    rtl = sel.rtl || com.tammem.pdfarabi.text.LegacyArabic.looksGarbled(sel.text)
+                    prefill = if (com.tammem.pdfarabi.text.LegacyArabic.looksGarbled(sel.text)) {
+                        toast("الخط متاع الكتاب هذا قديم برشا وما نجمتش نقرا الكلام، اكتب الكلام الجديد", true)
+                        ""
+                    } else sel.text
                     fontId = Fonts.guess(sel.font, rtl)
                     bold = Fonts.looksBold(sel.font)
                 } else {

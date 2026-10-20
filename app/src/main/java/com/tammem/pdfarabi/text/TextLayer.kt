@@ -82,12 +82,14 @@ object TextOrder {
     }
 
     fun textOf(visual: List<Glyph>, rtl: Boolean): String =
-        logical(visual, rtl).joinToString("") { it.text }.replace(Regex(" {2,}"), " ").trim()
+        logical(visual, rtl).joinToString("") { it.text }.replace(LegacyArabic.PART, "")
+            .replace(Regex(" {2,}"), " ").trim()
 }
 
 /** Search normalisation: ignores harakat, tatweel, hamza forms, letter case and French accents. */
 object Norm {
     fun char(c: Char): String = when {
+        c == '\u200D' -> ""
         c in 'ً'..'ٟ' || c == 'ٰ' || c in 'ۖ'..'ۭ' || c == 'ـ' -> ""
         c == 'أ' || c == 'إ' || c == 'آ' || c == 'ٱ' -> "ا"
         c == 'ى' -> "ي"
@@ -283,7 +285,13 @@ class PageText(val lines: List<TLine>) {
             stripper.endPage = pageIndex + 1
             stripper.getText(doc)
 
+            // Old AXt Arabic fonts (letters stored under Latin codes) are found per font and decoded.
+            val byFont = positions.groupBy { it.font }
+            val legacy = HashSet<com.tom_roush.pdfbox.pdmodel.font.PDFont?>()
+            for ((font, list) in byFont) if (runCatching { LegacyArabic.detect(font, list) }.getOrDefault(false)) legacy += font
+
             val glyphs = ArrayList<Glyph>(positions.size)
+            val legacyMarks = ArrayList<Pair<Glyph, Int>>()
             for (tp in positions) {
                 val dir = ((tp.dir.roundToInt() % 360) + 360) % 360
                 if (dir != rot) continue
@@ -295,15 +303,25 @@ class PageText(val lines: List<TLine>) {
                 val fd = runCatching { tp.font?.fontDescriptor }.getOrNull()
                 val asc = (fd?.ascent?.takeIf { it > 0f }?.div(1000f) ?: 0.92f).coerceIn(0.72f, 1.15f)
                 val desc = (fd?.descent?.takeIf { it < 0f }?.let { -it / 1000f } ?: 0.32f).coerceIn(0.18f, 0.6f)
-                var text = Normalizer.normalize(u, Normalizer.Form.NFKC)
-                if (text.isNotBlank()) text = text.trim()
-                if (text.isEmpty()) continue
+                val isLegacy = tp.font in legacy
+                var code = -1
+                var text: String
+                if (isLegacy) {
+                    code = LegacyArabic.codeOf(tp) ?: -1
+                    text = if (code >= 0) LegacyArabic.decode(code) else Normalizer.normalize(u, Normalizer.Form.NFKC)
+                    if (text.isBlank()) continue
+                } else {
+                    text = Normalizer.normalize(u, Normalizer.Form.NFKC)
+                    if (text.isNotBlank()) text = text.trim()
+                    if (text.isEmpty()) continue
+                }
                 val x = tp.xDirAdj * kx
                 val base = tp.yDirAdj * ky
                 val w = max(0f, tp.widthDirAdj * kx)
                 val fsk = fs * ky
                 val fontName = runCatching { tp.font?.name }.getOrNull()
-                glyphs += Glyph(text, x, base - asc * fsk, x + w, base + desc * fsk, base, fsk, fontName)
+                val g = Glyph(text, x, base - asc * fsk, x + w, base + desc * fsk, base, fsk, fontName)
+                if (isLegacy && LegacyArabic.isMark(text)) legacyMarks += g to code else glyphs += g
             }
             if (glyphs.isEmpty()) return EMPTY
 
@@ -339,9 +357,45 @@ class PageText(val lines: List<TLine>) {
                 }
                 val g = best ?: continue
                 if (bestD <= g.size) {
-                    g.text += m.text
+                    g.text = Normalizer.normalize(g.text + m.text, Normalizer.Form.NFC)
                     g.t = min(g.t, m.t)
                     g.b = max(g.b, m.b)
+                }
+            }
+
+            // 2b) AXt marks are drawn just before the letter they sit on (at its left edge).
+            for ((m, code) in legacyMarks) {
+                val anchor = m.r
+                val prefer = LegacyArabic.preferredBase(m.text, code)
+                var best: Glyph? = null
+                var bestD = Float.MAX_VALUE
+                var bestPref: Glyph? = null
+                var bestPrefD = Float.MAX_VALUE
+                for (row in rows) {
+                    val first = row[0]
+                    if (abs(first.baseline - m.baseline) > first.size * 0.8f) continue
+                    for (g in row) {
+                        if (g.isSpace) continue
+                        val d = abs(g.l - anchor)
+                        if (d < bestD) { bestD = d; best = g }
+                        if (prefer != null && g.text.trimEnd { it in '\u064B'..'\u0652' }.endsWith(prefer) && d < bestPrefD) {
+                            bestPrefD = d; bestPref = g
+                        }
+                    }
+                }
+                val lim = m.size * 0.6f
+                val target = if (bestPref != null && bestPrefD <= lim) bestPref else if (best != null && bestD <= lim) best else null
+                if (target != null) {
+                    target.text = Normalizer.normalize(target.text + m.text, Normalizer.Form.NFC)
+                    target.t = min(target.t, m.t)
+                } else {
+                    val alone = LegacyArabic.standalone(m.text, code)
+                    if (alone.isNotEmpty()) {
+                        val g = Glyph(alone, m.l, m.t, m.l + m.size * 0.3f, m.b, m.baseline, m.size, m.font)
+                        val row = rows.minByOrNull { abs(it[0].baseline - m.baseline) }
+                        if (row != null && abs(row[0].baseline - m.baseline) <= row[0].size * 0.8f) row += g
+                        else rows += mutableListOf(g)
+                    }
                 }
             }
 
