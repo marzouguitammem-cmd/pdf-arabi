@@ -84,6 +84,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -124,6 +125,12 @@ class WordActivity : AppCompatActivity() {
     private lateinit var ctxRow: LinearLayout
     private lateinit var ctxDivider: View
     private lateinit var wtools: LinearLayout
+    private lateinit var tabButton: TextView
+    private lateinit var stripScroll: HorizontalScrollView
+    private lateinit var expandBtn: ImageView
+    private lateinit var panelDivider: View
+    private lateinit var ribbonPanel: View
+    private lateinit var panelList: LinearLayout
     private lateinit var busy: View
     private lateinit var busyText: TextView
 
@@ -143,7 +150,6 @@ class WordActivity : AppCompatActivity() {
     private var tokenSeq = 0
     private val handler = Handler(Looper.getMainLooper())
     private var lastInsets: WindowInsetsCompat? = null
-    private val toggles = HashMap<String, ImageView>()
     private var view = "page"
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -174,6 +180,12 @@ class WordActivity : AppCompatActivity() {
         ctxRow = findViewById(R.id.ctxRow)
         ctxDivider = findViewById(R.id.ctxDivider)
         wtools = findViewById(R.id.wtools)
+        tabButton = findViewById(R.id.tabButton)
+        stripScroll = findViewById(R.id.stripScroll)
+        expandBtn = findViewById(R.id.expandBtn)
+        panelDivider = findViewById(R.id.panelDivider)
+        ribbonPanel = findViewById(R.id.ribbonPanel)
+        panelList = findViewById(R.id.panelList)
         busy = findViewById(R.id.busy)
         busyText = findViewById(R.id.busyText)
         view = Prefs.wordView
@@ -186,6 +198,9 @@ class WordActivity : AppCompatActivity() {
         toolbar.setNavigationOnClickListener { onBack() }
         toolbar.setOnMenuItemClickListener { onMenu(it.itemId); true }
         editFab.setOnClickListener { enterEdit() }
+        tabButton.setOnClickListener { chooseTab() }
+        tabButton.contentDescription = getString(R.string.w_choose_tab)
+        expandBtn.setOnClickListener { setPanel(!panelOpen) }
         setupWeb()
         setupFind()
         buildTools()
@@ -213,6 +228,7 @@ class WordActivity : AppCompatActivity() {
         val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
         val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
         topBar.updatePadding(left = bars.left, top = bars.top, right = bars.right)
+        if (ime > 0 && panelOpen) setPanel(false)
         if (formatBar.visibility == View.VISIBLE) {
             column.updatePadding(left = bars.left, right = bars.right, bottom = if (ime > 0) ime else 0)
             formatBar.updatePadding(bottom = if (ime > 0) 0 else bars.bottom)
@@ -252,8 +268,12 @@ class WordActivity : AppCompatActivity() {
         fun onLink(url: String) = runOnUiThread { openLink(url) }
     }
 
-    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface", "ClickableViewAccessibility")
     private fun setupWeb() {
+        web.setOnTouchListener { _, e ->
+            if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN && panelOpen) setPanel(false)
+            false
+        }
         val s = web.settings
         s.javaScriptEnabled = true
         s.allowFileAccess = false
@@ -527,12 +547,7 @@ class WordActivity : AppCompatActivity() {
             M.PDF -> exportPdf()
             M.FIND -> openFind(editMode)
             M.COUNT -> wordCount()
-            M.VIEW -> {
-                view = if (view == "page") "mobile" else "page"
-                Prefs.wordView = view
-                call("setView", view)
-                buildMenu()
-            }
+            M.VIEW -> setViewMode(if (view == "page") "mobile" else "page")
             M.INFO -> info()
             M.SETTINGS -> startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -571,6 +586,7 @@ class WordActivity : AppCompatActivity() {
     }
 
     private fun exitEdit() {
+        setPanel(false)
         editMode = false
         call("setEditable", false)
         hideKeyboard(web)
@@ -580,66 +596,320 @@ class WordActivity : AppCompatActivity() {
         applyInsets()
     }
 
-    private fun toolBtn(icon: Int, desc: String, key: String? = null, onClick: () -> Unit): ImageView {
-        val v = makeIconChip(this, icon, desc, onClick)
-        val s = dp(44f)
-        v.layoutParams = LinearLayout.LayoutParams(s, s).apply { marginEnd = dp(2f) }
-        v.setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
-        if (key != null) toggles[key] = v
-        wtools.addView(v)
-        return v
+    // ------------------------------------------------------------------ ribbon (tabs, like Word)
+
+    private enum class Tab(val icon: Int, val title: Int) {
+        HOME(R.drawable.ic_home, R.string.tab_home),
+        INSERT(R.drawable.ic_add, R.string.tab_insert),
+        PAGE(R.drawable.ic_page, R.string.tab_page),
+        TABLE(R.drawable.ic_table, R.string.tab_table),
+        VIEW(R.drawable.ic_view, R.string.tab_view)
     }
 
-    private fun sep() {
-        wtools.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(1f), dp(24f)).apply { marginStart = dp(4f); marginEnd = dp(4f) }
-            setBackgroundColor(attrColor(com.google.android.material.R.attr.colorOutlineVariant))
-        })
+    /** One command: shown as an icon in the strip and as a named row in the full list. */
+    private class Cmd(val id: String, val icon: Int, val label: String, val sub: Boolean = false, val table: Boolean = false, val run: () -> Unit)
+    private class Group(val title: String, val cmds: List<Cmd>)
+
+    private var tab = Tab.HOME
+    private var panelOpen = false
+    private val stripViews = HashMap<String, ImageView>()
+    private val rowViews = HashMap<String, View>()
+    private val cmdById = HashMap<String, Cmd>()
+
+    private fun rtlPara() = state.optString("dir") == "rtl"
+
+    /** Visual alignment buttons (like Word): right is the start of a right-to-left line. */
+    private fun alignVisual(right: Boolean) = call("setAlign", if (right == rtlPara()) "start" else "end")
+
+    private fun groups(t: Tab): List<Group> = when (t) {
+        Tab.HOME -> listOf(
+            Group(getString(R.string.g_font), listOf(
+                Cmd("b", R.drawable.ic_bold, getString(R.string.w_bold)) { call("toggle", "b") },
+                Cmd("i", R.drawable.ic_italic, getString(R.string.w_italic)) { call("toggle", "i") },
+                Cmd("u", R.drawable.ic_underline, getString(R.string.w_underline)) { call("toggle", "u") },
+                Cmd("c", R.drawable.ic_color_text, getString(R.string.w_color), sub = true) { colorSheet(false) },
+                Cmd("hl", R.drawable.ic_highlight, getString(R.string.w_highlight), sub = true) { colorSheet(true) },
+                Cmd("font", R.drawable.ic_format_text, getString(R.string.w_font) + " / " + getString(R.string.w_size), sub = true) { textSheet() },
+                Cmd("grow", R.drawable.ic_text_grow, getString(R.string.w_grow)) { call("growSize", 1) },
+                Cmd("shrink", R.drawable.ic_text_shrink, getString(R.string.w_shrink)) { call("growSize", -1) },
+                Cmd("s", R.drawable.ic_strike, getString(R.string.w_strike)) { call("toggle", "s") },
+                Cmd("sup", R.drawable.ic_sup, getString(R.string.w_sup)) { call("vertAlign", "sup") },
+                Cmd("sub", R.drawable.ic_sub, getString(R.string.w_sub)) { call("vertAlign", "sub") },
+                Cmd("clear", R.drawable.ic_format_clear, getString(R.string.w_clear_format)) { call("clearFormat") }
+            )),
+            Group(getString(R.string.g_paragraph), listOf(
+                Cmd("al_right", R.drawable.ic_align_right, getString(R.string.w_align_right)) { alignVisual(true) },
+                Cmd("al_center", R.drawable.ic_align_center, getString(R.string.w_align_center)) { call("setAlign", "center") },
+                Cmd("al_left", R.drawable.ic_align_left, getString(R.string.w_align_left)) { alignVisual(false) },
+                Cmd("al_justify", R.drawable.ic_align_justify, getString(R.string.w_align_justify)) { call("setAlign", "justify") },
+                Cmd("lb", R.drawable.ic_list_bullet, getString(R.string.w_bullets)) { call("toggleList", "bullet") },
+                Cmd("ln", R.drawable.ic_list_number, getString(R.string.w_numbers)) { call("toggleList", "decimal") },
+                Cmd("la", R.drawable.ic_list_number, getString(R.string.w_abjad)) { call("toggleList", "abjad") },
+                Cmd("ind_less", R.drawable.ic_indent_less, getString(R.string.w_indent_less)) { call("indent", -1) },
+                Cmd("ind_more", R.drawable.ic_indent_more, getString(R.string.w_indent_more)) { call("indent", 1) },
+                Cmd("rtl", R.drawable.ic_dir, getString(R.string.w_dir_rtl)) { call("setDir", "rtl") },
+                Cmd("ltr", R.drawable.ic_dir, getString(R.string.w_dir_ltr)) { call("setDir", "ltr") },
+                Cmd("spacing", R.drawable.ic_paragraph, getString(R.string.w_spacing), sub = true) { paragraphSheet() },
+                Cmd("styles", R.drawable.ic_styles, getString(R.string.w_styles), sub = true) { stylesSheet() }
+            ))
+        )
+        Tab.INSERT -> listOf(
+            Group(getString(R.string.g_objects), listOf(
+                Cmd("ins_table", R.drawable.ic_table, getString(R.string.w_insert_table), sub = true) { insertTableSheet() },
+                Cmd("ins_image", R.drawable.ic_image, getString(R.string.w_insert_image)) {
+                    pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                Cmd("ins_pb", R.drawable.ic_pagebreak, getString(R.string.w_insert_pb)) { call("insertPageBreak") },
+                Cmd("ins_link", R.drawable.ic_link, getString(R.string.w_insert_link), sub = true) { askLink() }
+            )),
+            Group(getString(R.string.g_text_bits), listOf(
+                Cmd("ins_date", R.drawable.ic_date, getString(R.string.w_insert_date)) {
+                    call("insertText", SimpleDateFormat("dd/MM/yyyy", Locale.US).format(Date()))
+                },
+                Cmd("ins_dots", R.drawable.ic_minus, getString(R.string.w_insert_dots)) { call("insertText", "………………………………………………") },
+                Cmd("ins_box", R.drawable.ic_check_circle, getString(R.string.w_insert_box)) { call("insertText", "☐ ") },
+                Cmd("ins_sym", R.drawable.ic_star, getString(R.string.w_symbols), sub = true) { symbolsSheet() }
+            ))
+        )
+        Tab.PAGE -> listOf(
+            Group(getString(R.string.g_page_setup), listOf(
+                Cmd("margins", R.drawable.ic_margins, getString(R.string.w_margins), sub = true) { marginsSheet() },
+                Cmd("or_p", R.drawable.ic_orient_portrait, getString(R.string.o_portrait)) { setOrientation(false) },
+                Cmd("or_l", R.drawable.ic_orient_landscape, getString(R.string.o_landscape)) { setOrientation(true) },
+                Cmd("size", R.drawable.ic_page_size, getString(R.string.w_page_size), sub = true) { sizeSheet() }
+            )),
+            Group(getString(R.string.g_page_deco), listOf(
+                Cmd("pborder", R.drawable.ic_page_border, getString(R.string.w_page_border), sub = true) { pageBorderSheet() },
+                Cmd("pcolor", R.drawable.ic_fill, getString(R.string.w_page_color), sub = true) { pageColorSheet() },
+                Cmd("wmark", R.drawable.ic_watermark, getString(R.string.w_watermark), sub = true) { watermarkSheet() },
+                Cmd("pnum", R.drawable.ic_page_number, getString(R.string.w_page_numbers), sub = true) { pageNumbersSheet() }
+            ))
+        )
+        Tab.TABLE -> listOf(
+            Group(getString(R.string.g_select), listOf(
+                Cmd("sel_cell", R.drawable.ic_sel_cell, getString(R.string.w_sel_cell), table = true) { call("selectCells", "cell") },
+                Cmd("sel_row", R.drawable.ic_sel_row, getString(R.string.w_sel_row), table = true) { call("selectCells", "row") },
+                Cmd("sel_col", R.drawable.ic_sel_col, getString(R.string.w_sel_col), table = true) { call("selectCells", "col") },
+                Cmd("sel_table", R.drawable.ic_select_all, getString(R.string.w_sel_table), table = true) { call("selectCells", "table") }
+            )),
+            Group(getString(R.string.g_merge), listOf(
+                Cmd("merge", R.drawable.ic_merge_cells, getString(R.string.w_merge_cells), table = true) {
+                    if (state.optInt("cells") >= 2) call("mergeCells") else toast(getString(R.string.w_merge_hint), true)
+                },
+                Cmd("split", R.drawable.ic_split_cell, getString(R.string.w_split_cell), table = true) { call("splitCell") }
+            )),
+            Group(getString(R.string.g_rows_cols), listOf(
+                Cmd("row_before", R.drawable.ic_up, getString(R.string.w_row_before), table = true) { call("tableRow", false) },
+                Cmd("row_after", R.drawable.ic_down, getString(R.string.w_row_after), table = true) { call("tableRow", true) },
+                Cmd("col_before", R.drawable.ic_chevron, getString(R.string.w_col_before), table = true) { call("tableCol", false) },
+                Cmd("col_after", R.drawable.ic_back, getString(R.string.w_col_after), table = true) { call("tableCol", true) },
+                Cmd("del_row", R.drawable.ic_delete, getString(R.string.w_del_row), table = true) { call("tableDelRow") },
+                Cmd("del_col", R.drawable.ic_delete, getString(R.string.w_del_col), table = true) { call("tableDelCol") },
+                Cmd("del_table", R.drawable.ic_delete, getString(R.string.w_del_table), table = true) { call("tableDelete") }
+            )),
+            Group(getString(R.string.g_cell_look), listOf(
+                Cmd("cell_bg", R.drawable.ic_fill, getString(R.string.w_cell_color), sub = true, table = true) { cellColorSheet() },
+                Cmd("borders", R.drawable.ic_border_all, getString(R.string.w_borders), sub = true, table = true) { bordersSheet() },
+                Cmd("va_top", R.drawable.ic_valign_top, getString(R.string.w_va_top), table = true) { call("cellVAlign", "top") },
+                Cmd("va_center", R.drawable.ic_valign_center, getString(R.string.w_va_center), table = true) { call("cellVAlign", "center") },
+                Cmd("va_bottom", R.drawable.ic_valign_bottom, getString(R.string.w_va_bottom), table = true) { call("cellVAlign", "bottom") },
+                Cmd("tdir", R.drawable.ic_dir, getString(R.string.w_table_dir), table = true) { call("tableDir") }
+            ))
+        )
+        Tab.VIEW -> listOf(
+            Group(getString(R.string.g_view), listOf(
+                Cmd("read", R.drawable.ic_check, getString(R.string.w_read_mode)) { exitEdit() },
+                Cmd("view_page", R.drawable.ic_orient_portrait, getString(R.string.w_view_page)) { setViewMode("page") },
+                Cmd("view_mobile", R.drawable.ic_view, getString(R.string.w_view_mobile)) { setViewMode("mobile") }
+            )),
+            Group(getString(R.string.g_tools), listOf(
+                Cmd("find", R.drawable.ic_search, getString(R.string.w_find)) { openFind(false) },
+                Cmd("replace", R.drawable.ic_replace, getString(R.string.w_show_replace)) { openFind(true) },
+                Cmd("count", R.drawable.ic_count, getString(R.string.w_word_count)) { wordCount() },
+                Cmd("pdf", R.drawable.ic_pdf_out, getString(R.string.w_export_pdf)) { exportPdf() },
+                Cmd("share", R.drawable.ic_share, getString(R.string.w_share_docx)) { share() }
+            ))
+        )
+    }
+
+    private fun isOn(id: String): Boolean {
+        val al = state.optString("al", "start")
+        val rtl = rtlPara()
+        return when (id) {
+            "b" -> state.optBoolean("b")
+            "i" -> state.optBoolean("i")
+            "u" -> state.optBoolean("ul")
+            "s" -> state.optBoolean("s")
+            "sup" -> state.optString("va") == "sup"
+            "sub" -> state.optString("va") == "sub"
+            "al_right" -> (rtl && al == "start") || (!rtl && al == "end")
+            "al_left" -> (!rtl && al == "start") || (rtl && al == "end")
+            "al_center" -> al == "center"
+            "al_justify" -> al == "justify"
+            "lb" -> state.optString("list") == "bullet"
+            "ln" -> state.optString("list") == "decimal"
+            "la" -> state.optString("list") == "abjad"
+            "rtl" -> rtl
+            "ltr" -> state.has("dir") && !rtl
+            "or_p" -> state.optString("orient", "portrait") != "landscape"
+            "or_l" -> state.optString("orient") == "landscape"
+            "va_top" -> state.optBoolean("tbl") && state.optString("cva", "top") == "top"
+            "va_center" -> state.optString("cva") == "center"
+            "va_bottom" -> state.optString("cva") == "bottom"
+            "view_page" -> view == "page"
+            "view_mobile" -> view == "mobile"
+            else -> false
+        }
+    }
+
+    private fun isEnabled(c: Cmd): Boolean = when (c.id) {
+        "merge" -> state.optBoolean("tbl")
+        "split" -> state.optBoolean("merged")
+        else -> !c.table || state.optBoolean("tbl")
     }
 
     private fun buildTools() {
         wtools.removeAllViews()
-        toggles.clear()
-        toolBtn(R.drawable.ic_check, getString(R.string.w_read)) { exitEdit() }
-        sep()
-        toolBtn(R.drawable.ic_format_text, getString(R.string.w_text)) { textSheet() }
-        toolBtn(R.drawable.ic_bold, getString(R.string.w_bold), "b") { call("toggle", "b") }
-        toolBtn(R.drawable.ic_italic, getString(R.string.w_italic), "i") { call("toggle", "i") }
-        toolBtn(R.drawable.ic_underline, getString(R.string.w_underline), "u") { call("toggle", "u") }
-        toolBtn(R.drawable.ic_color_text, getString(R.string.w_color), "c") { colorSheet(false) }
-        toolBtn(R.drawable.ic_highlight, getString(R.string.w_highlight), "hl") { colorSheet(true) }
-        sep()
-        toolBtn(R.drawable.ic_align_right, getString(R.string.w_align), "al") { paragraphSheet() }
-        toolBtn(R.drawable.ic_list_bullet, getString(R.string.w_bullets), "lb") { call("toggleList", "bullet") }
-        toolBtn(R.drawable.ic_list_number, getString(R.string.w_numbers), "ln") { call("toggleList", "decimal") }
-        toolBtn(R.drawable.ic_indent_less, getString(R.string.w_indent_less)) { call("indent", -1) }
-        toolBtn(R.drawable.ic_indent_more, getString(R.string.w_indent_more)) { call("indent", 1) }
-        toolBtn(R.drawable.ic_dir, getString(R.string.w_direction)) {
-            call("setDir", if (state.optString("dir") == "rtl") "ltr" else "rtl")
+        stripViews.clear()
+        cmdById.clear()
+        tabButton.text = getString(tab.title)
+        tabButton.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null,
+            androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_down)?.mutate()?.apply {
+                setTint(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            }, null)
+        groups(tab).forEachIndexed { gi, g ->
+            if (gi > 0) wtools.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(1f), dp(24f)).apply { marginStart = dp(4f); marginEnd = dp(4f) }
+                setBackgroundColor(attrColor(com.google.android.material.R.attr.colorOutlineVariant))
+            })
+            g.cmds.forEach { c ->
+                cmdById[c.id] = c
+                val v = makeIconChip(this, c.icon, c.label) { if (isEnabled(c)) c.run() else toast(getString(R.string.w_not_in_table)) }
+                val sz = dp(44f)
+                v.layoutParams = LinearLayout.LayoutParams(sz, sz).apply { marginEnd = dp(2f) }
+                v.setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(v, c.label)
+                stripViews[c.id] = v
+                wtools.addView(v)
+            }
         }
-        sep()
-        toolBtn(R.drawable.ic_styles, getString(R.string.w_styles)) { stylesSheet() }
-        toolBtn(R.drawable.ic_add, getString(R.string.w_insert)) { insertSheet() }
-        toolBtn(R.drawable.ic_search, getString(R.string.w_find)) { openFind(true) }
+        buildPanel()
+        refreshTools()
+        stripScroll.post { stripScroll.scrollTo(if (stripScroll.layoutDirection == View.LAYOUT_DIRECTION_RTL) wtools.width else 0, 0) }
+    }
+
+    /** The full list of the tab's commands, with names, grouped like Word's mobile ribbon. */
+    private fun buildPanel() {
+        panelList.removeAllViews()
+        rowViews.clear()
+        groups(tab).forEach { g ->
+            panelList.addView(TextView(this).apply {
+                text = g.title
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
+                typeface = Fonts.get("tajawal").bold
+                setTextColor(attrColor(androidx.appcompat.R.attr.colorPrimary))
+                setPadding(dp(18f), dp(12f), dp(18f), dp(4f))
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            })
+            g.cmds.forEach { c ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(48f)
+                    setPadding(dp(18f), 0, dp(12f), 0)
+                    isClickable = true
+                    isFocusable = true
+                    val tv = android.util.TypedValue()
+                    theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+                    foreground = androidx.core.content.ContextCompat.getDrawable(context, tv.resourceId)
+                    setOnClickListener { if (isEnabled(c)) c.run() else toast(getString(R.string.w_not_in_table)) }
+                }
+                row.addView(ImageView(this).apply {
+                    setImageResource(c.icon)
+                    imageTintList = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                }, LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { marginEnd = dp(18f) })
+                row.addView(TextView(this).apply {
+                    text = c.label
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+                    typeface = Fonts.get("tajawal").regular
+                    setTextColor(attrColor(com.google.android.material.R.attr.colorOnSurface))
+                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                if (c.sub) row.addView(ImageView(this).apply {
+                    setImageResource(R.drawable.ic_chevron)
+                    imageTintList = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                }, LinearLayout.LayoutParams(dp(20f), dp(20f)))
+                rowViews[c.id] = row
+                panelList.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+        }
+    }
+
+    private fun refreshTools() {
+        for ((id, v) in stripViews) {
+            val c = cmdById[id] ?: continue
+            v.setChipSelected(isOn(id))
+            v.alpha = if (isEnabled(c)) 1f else 0.35f
+        }
+        for ((id, v) in rowViews) {
+            val c = cmdById[id] ?: continue
+            if (isOn(id)) v.setBackgroundResource(R.drawable.bg_tool_selected) else v.background = null
+            v.alpha = if (isEnabled(c)) 1f else 0.4f
+        }
+        val c = state.optString("c")
+        stripViews["c"]?.imageTintList = ColorStateList.valueOf(
+            if (c.length == 6) Color.parseColor("#$c") else attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+        )
+    }
+
+    private fun chooseTab() {
+        val pm = androidx.appcompat.widget.PopupMenu(this, tabButton)
+        Tab.entries.forEachIndexed { i, t ->
+            pm.menu.add(0, i, i, getString(t.title)).setIcon(t.icon).isCheckable = true
+            pm.menu.findItem(i).isChecked = t == tab
+        }
+        pm.menu.setGroupCheckable(0, true, true)
+        if (android.os.Build.VERSION.SDK_INT >= 29) pm.setForceShowIcon(true)
+        pm.setOnMenuItemClickListener { item ->
+            selectTab(Tab.entries[item.itemId])
+            true
+        }
+        pm.show()
+    }
+
+    private fun selectTab(t: Tab) {
+        tab = t
+        buildTools()
+    }
+
+    private fun setPanel(open: Boolean) {
+        if (open == panelOpen) return
+        panelOpen = open
+        if (open) {
+            hideKeyboard(web)
+            val h = (root.height * if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 0.5 else 0.42).toInt()
+            ribbonPanel.layoutParams = ribbonPanel.layoutParams.apply { height = max(dp(160f), h) }
+            ribbonPanel.visibility = View.VISIBLE
+            panelDivider.visibility = View.VISIBLE
+            ribbonPanel.scrollTo(0, 0)
+        } else {
+            ribbonPanel.visibility = View.GONE
+            panelDivider.visibility = View.GONE
+        }
+        expandBtn.setImageResource(if (open) R.drawable.ic_down else R.drawable.ic_up)
+        expandBtn.contentDescription = getString(if (open) R.string.close else R.string.w_all_commands)
+    }
+
+    private fun setViewMode(v: String) {
+        view = v
+        Prefs.wordView = view
+        call("setView", view)
+        buildMenu()
+        refreshTools()
     }
 
     private fun updateToolState() {
-        toggles["b"]?.setChipSelected(state.optBoolean("b"))
-        toggles["i"]?.setChipSelected(state.optBoolean("i"))
-        toggles["u"]?.setChipSelected(state.optBoolean("ul"))
-        toggles["lb"]?.setChipSelected(state.optString("list") == "bullet")
-        toggles["ln"]?.setChipSelected(state.optString("list") == "decimal" || state.optString("list") == "abjad")
-        val rtl = state.optString("dir") == "rtl"
-        toggles["al"]?.setImageResource(when (state.optString("al")) {
-            "center" -> R.drawable.ic_align_center
-            "justify" -> R.drawable.ic_count
-            "end" -> if (rtl) R.drawable.ic_align_left else R.drawable.ic_align_right
-            else -> if (rtl) R.drawable.ic_align_right else R.drawable.ic_align_left
-        })
-        val c = state.optString("c")
-        toggles["c"]?.imageTintList = ColorStateList.valueOf(
-            if (c.length == 6) Color.parseColor("#$c") else attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
-        )
+        refreshTools()
         updateUndoIcons()
         updateContext()
     }
@@ -647,38 +917,397 @@ class WordActivity : AppCompatActivity() {
     private var ctxKind = ""
 
     private fun updateContext() {
+        val cells = state.optInt("cells")
         val kind = when {
             !editMode -> ""
             imageSelected || state.optBoolean("img") -> "img"
-            state.optBoolean("tbl") -> "tbl"
+            cells >= 2 -> "cells$cells"
             else -> ""
         }
         if (kind == ctxKind) return
         ctxKind = kind
         ctxRow.removeAllViews()
-        when (kind) {
-            "tbl" -> {
-                fun chip(text: Int, fn: String, vararg args: Any?) = ctxRow.addView(makeTextChip(this, getString(text)) { call(fn, *args) })
-                chip(R.string.w_row_before, "tableRow", false)
-                chip(R.string.w_row_after, "tableRow", true)
-                chip(R.string.w_col_before, "tableCol", false)
-                chip(R.string.w_col_after, "tableCol", true)
-                ctxRow.addView(makeTextChip(this, getString(R.string.w_cell_color)) { cellColorSheet() })
-                chip(R.string.w_del_row, "tableDelRow")
-                chip(R.string.w_del_col, "tableDelCol")
-                chip(R.string.w_table_dir, "tableDir")
-                chip(R.string.w_del_table, "tableDelete")
-            }
-            "img" -> {
+        when {
+            kind == "img" -> {
                 listOf(25, 50, 75, 100).forEach { pct ->
                     ctxRow.addView(makeTextChip(this, "$pct%") { call("imageWidth", pct / 100.0) })
                 }
                 ctxRow.addView(makeTextChip(this, getString(R.string.w_img_delete)) { call("imageDelete") })
             }
+            kind.startsWith("cells") -> {
+                // a block of cells is selected: the useful table commands right away
+                ctxRow.addView(TextView(this).apply {
+                    text = getString(R.string.w_cells_n, cells)
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
+                    setTextColor(attrColor(androidx.appcompat.R.attr.colorPrimary))
+                    setPadding(dp(6f), 0, dp(10f), 0)
+                })
+                ctxRow.addView(makeTextChip(this, getString(R.string.w_merge_cells)) { call("mergeCells") })
+                ctxRow.addView(makeTextChip(this, getString(R.string.w_cell_color)) { cellColorSheet() })
+                ctxRow.addView(makeTextChip(this, getString(R.string.w_borders)) { bordersSheet() })
+                ctxRow.addView(makeTextChip(this, getString(R.string.w_del_row)) { call("tableDelRow") })
+                ctxRow.addView(makeTextChip(this, getString(R.string.w_del_col)) { call("tableDelCol") })
+                ctxRow.addView(makeTextChip(this, getString(R.string.tab_table) + " ›") { selectTab(Tab.TABLE); setPanel(true) })
+            }
         }
         val show = kind.isNotEmpty()
         ctxScroll.visibility = if (show) View.VISIBLE else View.GONE
         ctxDivider.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    // ------------------------------------------------------------------ page tab
+
+    /** Reads the page settings from the editor (sizes in twips). */
+    private fun withPage(cb: (JSONObject) -> Unit) {
+        if (!ready) return
+        web.evaluateJavascript("E.page()") { v ->
+            val o = runCatching { JSONObject(JSONArray("[$v]").getString(0)) }.getOrNull() ?: JSONObject()
+            cb(o)
+        }
+    }
+
+    private fun setPage(o: JSONObject) = js("E.setPage(${o})")
+
+    private fun setOrientation(landscape: Boolean) = withPage { p ->
+        val w = p.optInt("w", 11906)
+        val h = p.optInt("h", 16838)
+        val isLand = w > h
+        val o = JSONObject().put("orient", if (landscape) "landscape" else "portrait")
+        if (isLand != landscape) o.put("w", h).put("h", w) else o.put("w", w).put("h", h)
+        setPage(o)
+    }
+
+    private fun cm(tw: Int) = String.format(Locale.US, "%.2f", tw / 566.93).trimEnd('0').trimEnd('.')
+
+    private fun selectedChip(chip: TextView, on: Boolean) =
+        chip.setBackgroundResource(if (on) R.drawable.bg_tool_selected else R.drawable.bg_round_surface)
+
+    private fun marginsSheet() = withPage { p ->
+        sheet { box, d ->
+            label(box, getString(R.string.w_margins))
+            val cur = listOf(p.optInt("mt", 1440), p.optInt("mb", 1440), p.optInt("mr", 1440), p.optInt("ml", 1440))
+            val presets = listOf(
+                R.string.m_normal to listOf(1418, 1418, 1418, 1418),
+                R.string.m_narrow to listOf(720, 720, 720, 720),
+                R.string.m_tiny to listOf(567, 567, 567, 567),
+                R.string.m_moderate to listOf(1440, 1440, 1080, 1080),
+                R.string.m_wide to listOf(1440, 1440, 2880, 2880)
+            )
+            for ((name, m) in presets) {
+                val row = optionRow(box, getString(name), "${cm(m[0])} × ${cm(m[2])} cm", m.zip(cur).all { (a, b) -> abs(a - b) <= 20 }) {
+                    setPage(JSONObject().put("mt", m[0]).put("mb", m[1]).put("mr", m[2]).put("ml", m[3]))
+                    d.dismiss()
+                }
+                box.addView(row)
+            }
+            box.addView(optionRow(box, getString(R.string.m_custom), cur.joinToString(" · ") { cm(it) } + " cm", false) {
+                d.dismiss()
+                customMargins(cur)
+            })
+        }
+    }
+
+    private fun customMargins(cur: List<Int>) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22f), dp(8f), dp(22f), 0) }
+        val labels = listOf(R.string.m_top, R.string.m_bottom, R.string.m_right, R.string.m_left)
+        val fields = labels.mapIndexed { i, l ->
+            val til = TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply { hint = getString(l) }
+            val e = TextInputEditText(til.context).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setText(cm(cur[i]))
+            }
+            til.addView(e)
+            box.addView(til, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+            e
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.w_margins))
+            .setView(box)
+            .setPositiveButton(getString(R.string.wm_apply)) { _, _ ->
+                val v = fields.mapIndexed { i, f ->
+                    val c = f.textString().replace(',', '.').toDoubleOrNull()
+                    if (c == null) cur[i] else (c.coerceIn(0.0, 10.0) * 566.93).toInt()
+                }
+                setPage(JSONObject().put("mt", v[0]).put("mb", v[1]).put("mr", v[2]).put("ml", v[3]))
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    /** A row with a name, a detail and a tick when it is the current choice. */
+    private fun optionRow(box: LinearLayout, title: String, detail: String?, on: Boolean, click: () -> Unit): View {
+        val row = LinearLayout(box.context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+            setBackgroundResource(if (on) R.drawable.bg_tool_selected else R.drawable.bg_round_surface)
+            isClickable = true
+            setOnClickListener { click() }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) }
+        }
+        row.addView(TextView(box.context).apply {
+            text = title
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+            typeface = Fonts.get("tajawal").bold
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        })
+        if (detail != null) row.addView(TextView(box.context).apply {
+            text = detail
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            textDirection = View.TEXT_DIRECTION_LOCALE
+        })
+        return row
+    }
+
+    private fun sizeSheet() = withPage { p ->
+        sheet { box, d ->
+            label(box, getString(R.string.w_page_size))
+            val w = p.optInt("w", 11906)
+            val h = p.optInt("h", 16838)
+            val land = w > h
+            val sizes = listOf("A4" to (11906 to 16838), "A5" to (8391 to 11906), "A3" to (16838 to 23811),
+                "Letter" to (12240 to 15840), "Legal" to (12240 to 20160))
+            for ((name, wh) in sizes) {
+                val (sw, sh) = wh
+                val on = abs(min(w, h) - sw) < 60 && abs(max(w, h) - sh) < 60
+                box.addView(optionRow(box, name, "${cm(sw)} × ${cm(sh)} cm", on) {
+                    setPage(JSONObject().put("w", if (land) sh else sw).put("h", if (land) sw else sh).put("orient", if (land) "landscape" else "portrait"))
+                    d.dismiss()
+                })
+            }
+        }
+    }
+
+    private val lineBorders = listOf("single" to R.string.pb_single, "thick" to R.string.pb_thick, "double" to R.string.pb_double,
+        "triple" to R.string.pb_triple, "thinThickSmallGap" to R.string.pb_thinthick, "dotted" to R.string.pb_dotted,
+        "dashed" to R.string.pb_dashed, "dotDash" to R.string.pb_dotdash, "wave" to R.string.pb_wave, "threeDEmboss" to R.string.pb_3d)
+    private val artBorders = listOf(Triple("stars", "★", R.string.pb_stars), Triple("hearts", "♥", R.string.pb_hearts),
+        Triple("apples", "●", R.string.pb_apples), Triple("pencils", "✎", R.string.pb_pencils), Triple("flowersTiny", "✿", R.string.pb_flowers),
+        Triple("basicBlackDots", "●", R.string.pb_dots), Triple("triangles", "▲", R.string.pb_triangles),
+        Triple("musicNotes", "♪", R.string.pb_music), Triple("sun", "☀", R.string.pb_sun), Triple("balloons3Colors", "●", R.string.pb_balloons))
+    private val borderColors = listOf("000000", "1F3864", "2E74B5", "C00000", "00B050", "ED7D31", "7030A0", "FFC000", "7F7F7F")
+
+    private fun pageBorderSheet() = withPage { p ->
+        sheet { box, d ->
+            val cur = p.optJSONObject("border")?.let { JSONObject(it.toString()) }
+            var style = cur?.optString("style") ?: ""
+            var art = cur?.optBoolean("art") ?: false
+            var color = cur?.optString("color", "000000") ?: "000000"
+            var lineSz = if (cur != null && !art) cur.optInt("sz", 12) else 12
+            var artSz = if (cur != null && art) cur.optInt("sz", 20) else 20
+            val chips = HashMap<String, TextView>()
+            fun push() {
+                if (style.isEmpty()) { setPage(JSONObject().put("border", JSONObject.NULL)); return }
+                setPage(JSONObject().put("border", JSONObject().put("style", style).put("art", art)
+                    .put("sz", if (art) artSz else lineSz).put("space", 24).put("from", "page")
+                    .put("color", if (art && style != "basicBlackDots" && style != "triangles") "auto" else color)))
+            }
+            fun mark() { for ((k, v) in chips) selectedChip(v, k == style || (k == "" && style.isEmpty())) }
+
+            label(box, getString(R.string.w_page_border))
+            hScroll(box) { row ->
+                makeTextChip(this, getString(R.string.pb_none)) { style = ""; mark(); push() }.also { chips[""] = it; row.addView(it) }
+            }
+            label(box, getString(R.string.pb_lines))
+            hScroll(box) { row ->
+                lineBorders.forEach { (k, n) ->
+                    makeTextChip(this, getString(n)) { style = k; art = false; mark(); push() }.also { chips[k] = it; row.addView(it) }
+                }
+            }
+            label(box, getString(R.string.pb_art))
+            hScroll(box) { row ->
+                artBorders.forEach { (k, sym, n) ->
+                    makeTextChip(this, "$sym ${getString(n)}") { style = k; art = true; mark(); push() }.also { chips[k] = it; row.addView(it) }
+                }
+            }
+            box.addView(TextView(box.context).apply {
+                text = getString(R.string.pb_art_note)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                setTextColor(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                setPadding(0, dp(4f), 0, 0)
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            })
+            label(box, getString(R.string.pb_color))
+            hScroll(box) { row ->
+                borderColors.forEach { c -> swatch(row, "#$c", c.equals(color, true)) { color = c; if (style.isEmpty()) { style = "single"; art = false; mark() }; push() } }
+            }
+            label(box, getString(R.string.pb_width))
+            val widthChips = ArrayList<Pair<Int, TextView>>()
+            hScroll(box) { row ->
+                listOf(4 to "½", 6 to "¾", 8 to "1", 12 to "1½", 18 to "2¼", 24 to "3", 36 to "4½", 48 to "6").forEach { (sz, t) ->
+                    val chip = makeTextChip(this, "$t pt") {
+                        if (art) artSz = (sz / 2).coerceIn(8, 31) else lineSz = sz
+                        widthChips.forEach { (s2, v) -> selectedChip(v, s2 == sz) }
+                        if (style.isEmpty()) { style = "single"; art = false; mark() }
+                        push()
+                    }
+                    selectedChip(chip, !art && sz == lineSz)
+                    widthChips += sz to chip
+                    row.addView(chip)
+                }
+            }
+            mark()
+            box.addView(MaterialButton(box.context).apply {
+                text = getString(R.string.ok)
+                setOnClickListener { d.dismiss() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14f) })
+        }
+    }
+
+    private val pageColors = listOf("FFF8E1", "FFF2CC", "E2EFDA", "DDEBF7", "FCE4D6", "F2DCDB", "EDE7F6", "E0F7FA", "F2F2F2")
+
+    private fun pageColorSheet() = withPage { p ->
+        sheet { box, d ->
+            label(box, getString(R.string.w_page_color))
+            val cur = p.optString("bg", "")
+            hScroll(box) { row ->
+                swatch(row, null, cur.isEmpty()) { setPage(JSONObject().put("bg", "")); d.dismiss() }
+                pageColors.forEach { c -> swatch(row, "#$c", c.equals(cur, true)) { setPage(JSONObject().put("bg", c)); d.dismiss() } }
+            }
+        }
+    }
+
+    private val wmColors = listOf("C0C0C0", "808080", "9DC3E6", "F4B183", "FF9999", "A9D18E")
+
+    private fun watermarkSheet() = withPage { p ->
+        sheet { box, d ->
+            val cur = p.optJSONObject("wm")
+            var color = cur?.optString("color", "C0C0C0") ?: "C0C0C0"
+            var diag = cur?.optBoolean("diag", true) ?: true
+            label(box, getString(R.string.w_watermark))
+            val til = TextInputLayout(box.context, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply { hint = getString(R.string.wm_text) }
+            val input = TextInputEditText(til.context).apply {
+                inputType = InputType.TYPE_CLASS_TEXT
+                textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                setText(cur?.optString("text") ?: "")
+            }
+            til.addView(input)
+            box.addView(til)
+            fun push() {
+                val t = input.textString().trim()
+                if (t.isEmpty()) return
+                setPage(JSONObject().put("wm", JSONObject().put("text", t).put("color", color).put("diag", diag).put("font", "Arial")))
+            }
+            hScroll(box) { row ->
+                listOf("نموذج", "مسودّة", "سرّي", "عاجل", "MODÈLE", "BROUILLON", "CONFIDENTIEL").forEach { t ->
+                    row.addView(makeTextChip(this, t) { input.setText(t); push() })
+                }
+            }
+            label(box, getString(R.string.wm_layout))
+            hScroll(box) { row ->
+                val a = makeTextChip(this, getString(R.string.wm_diag)) {}
+                val b = makeTextChip(this, getString(R.string.wm_horiz)) {}
+                fun mark() { selectedChip(a, diag); selectedChip(b, !diag) }
+                a.setOnClickListener { diag = true; mark(); push() }
+                b.setOnClickListener { diag = false; mark(); push() }
+                mark()
+                row.addView(a); row.addView(b)
+            }
+            label(box, getString(R.string.w_color))
+            hScroll(box) { row -> wmColors.forEach { c -> swatch(row, "#$c", c.equals(color, true)) { color = c; push() } } }
+            val buttons = LinearLayout(box.context).apply { orientation = LinearLayout.HORIZONTAL }
+            buttons.addView(MaterialButton(box.context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = getString(R.string.wm_none)
+                setOnClickListener { setPage(JSONObject().put("wm", JSONObject.NULL)); d.dismiss() }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) })
+            buttons.addView(MaterialButton(box.context).apply {
+                text = getString(R.string.wm_apply)
+                setOnClickListener { push(); hideKeyboard(input); d.dismiss() }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            box.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14f) })
+        }
+    }
+
+    private fun pageNumbersSheet() = withPage { p ->
+        sheet { box, d ->
+            val cur = p.optJSONObject("pn")
+            var pos = cur?.optString("pos", "bc") ?: "bc"
+            var fmt = cur?.optString("fmt", "n") ?: "n"
+            label(box, getString(R.string.w_page_numbers))
+            if (p.optBoolean("pnHas") && cur == null) box.addView(TextView(box.context).apply {
+                text = getString(R.string.pn_has)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                setTextColor(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            })
+            fun push() = setPage(JSONObject().put("pn", JSONObject().put("pos", pos).put("fmt", fmt)))
+            var chosen = cur != null
+            val posChips = HashMap<String, TextView>()
+            fun markPos() { for ((k, v) in posChips) selectedChip(v, chosen && k == pos) }
+            label(box, getString(R.string.pn_pos))
+            for (vert in listOf("t", "b")) {
+                val row = LinearLayout(box.context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LTR // as the positions look on the page
+                }
+                row.addView(TextView(box.context).apply {
+                    text = getString(if (vert == "t") R.string.pn_top else R.string.pn_bottom)
+                    minWidth = dp(56f)
+                    setPadding(dp(4f), 0, dp(4f), 0)
+                    gravity = Gravity.CENTER_VERTICAL
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38f)))
+                for ((h, n) in listOf("l" to R.string.pn_left, "c" to R.string.pn_center, "r" to R.string.pn_right)) {
+                    val k = vert + h
+                    val chip = makeTextChip(this, getString(n)) { pos = k; chosen = true; markPos(); push() }
+                    posChips[k] = chip
+                    row.addView(chip)
+                }
+                box.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4f) })
+            }
+            markPos()
+            label(box, getString(R.string.pn_fmt))
+            val word = if (conv?.rtl == true) "الصفحة 1 من 5" else "Page 1 sur 5"
+            hScroll(box) { row ->
+                val fchips = ArrayList<Pair<String, TextView>>()
+                listOf("n" to "1", "dash" to "- 1 -", "of" to "1 / 5", "word" to word).forEach { (k, t) ->
+                    val chip = makeTextChip(this, t) {
+                        fmt = k
+                        fchips.forEach { (k2, v) -> selectedChip(v, k2 == fmt) }
+                        chosen = true; markPos(); push()
+                    }
+                    selectedChip(chip, k == fmt)
+                    fchips += k to chip
+                    row.addView(chip)
+                }
+            }
+            val buttons = LinearLayout(box.context).apply { orientation = LinearLayout.HORIZONTAL }
+            buttons.addView(MaterialButton(box.context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = getString(R.string.pn_none)
+                setOnClickListener { setPage(JSONObject().put("pn", "")); d.dismiss() }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) })
+            buttons.addView(MaterialButton(box.context).apply {
+                text = getString(R.string.ok)
+                setOnClickListener { if (!chosen) push(); d.dismiss() }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            box.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14f) })
+        }
+    }
+
+    private fun bordersSheet() = sheet { box, d ->
+        label(box, getString(R.string.w_borders))
+        listOf(Triple("all", R.drawable.ic_border_all, R.string.w_bd_all), Triple("outside", R.drawable.ic_border_outer, R.string.w_bd_outside),
+            Triple("inside", R.drawable.ic_border_inner, R.string.w_bd_inside), Triple("none", R.drawable.ic_border_clear, R.string.w_bd_none)).forEach { (k, icon, n) ->
+            val row = LinearLayout(box.context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
+                setBackgroundResource(R.drawable.bg_round_surface)
+                isClickable = true
+                setOnClickListener { call("cellBorders", k); d.dismiss() }
+            }
+            row.addView(ImageView(box.context).apply {
+                setImageResource(icon)
+                imageTintList = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            }, LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { marginEnd = dp(16f) })
+            row.addView(TextView(box.context).apply {
+                text = getString(n)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+                typeface = Fonts.get("tajawal").regular
+            })
+            box.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+        }
     }
 
     // ------------------------------------------------------------------ sheets
@@ -922,7 +1551,7 @@ class WordActivity : AppCompatActivity() {
         }
     }
 
-    private fun insertSheet() = sheet { box, d ->
+    private fun insertTableSheet() = sheet { box, d ->
         label(box, getString(R.string.w_insert_table))
         var rows = 3
         var cols = 3
@@ -947,28 +1576,9 @@ class WordActivity : AppCompatActivity() {
             setIconResource(R.drawable.ic_table)
             setOnClickListener { call("insertTable", rows, cols); d.dismiss() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+    }
 
-        label(box, getString(R.string.w_insert))
-        val grid = ChipGroup(box.context).apply { chipSpacingHorizontal = dp(8f) }
-        fun action(text: Int, icon: Int, fn: () -> Unit) {
-            grid.addView(Chip(box.context).apply {
-                this.text = getString(text)
-                setChipIconResource(icon)
-                isChipIconVisible = true
-                chipIconTint = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
-                setOnClickListener { d.dismiss(); fn() }
-            })
-        }
-        action(R.string.w_insert_image, R.drawable.ic_image) { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-        action(R.string.w_insert_pb, R.drawable.ic_pagebreak) { call("insertPageBreak") }
-        action(R.string.w_insert_date, R.drawable.ic_date) {
-            call("insertText", SimpleDateFormat("dd/MM/yyyy", Locale.US).format(Date()))
-        }
-        action(R.string.w_insert_dots, R.drawable.ic_minus) { call("insertText", "………………………………………………") }
-        action(R.string.w_insert_box, R.drawable.ic_check_circle) { call("insertText", "☐ ") }
-        action(R.string.w_insert_link, R.drawable.ic_link) { askLink() }
-        box.addView(grid)
-
+    private fun symbolsSheet() = sheet { box, _ ->
         label(box, getString(R.string.w_symbols))
         val sym = ChipGroup(box.context).apply { chipSpacingHorizontal = dp(4f); chipSpacingVertical = dp(0f) }
         SYMBOLS.forEach { s ->
@@ -1259,6 +1869,7 @@ class WordActivity : AppCompatActivity() {
         when {
             busy.visibility == View.VISIBLE -> return
             findBar.visibility == View.VISIBLE -> closeFind()
+            panelOpen -> setPanel(false)
             editMode -> exitEdit()
             dirty && ready -> askSaveOnExit()
             else -> finish()

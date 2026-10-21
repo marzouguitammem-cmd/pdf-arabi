@@ -128,10 +128,6 @@
     Object.keys(S).forEach(function (id) {
       css += 'p[data-st="' + cssId(id) + '"],.pp[data-st="' + cssId(id) + '"]{' + styleVars(S[id]) + '}\n';
     });
-    if (D.page) {
-      var pg = D.page;
-      css += '@page{size:' + pg.w + 'px ' + pg.h + 'px;margin:' + pg.mt + 'px ' + pg.mr + 'px ' + pg.mb + 'px ' + pg.ml + 'px;}\n';
-    }
     if (D.strings && D.strings.pageBreak) {
       css += ':root{--pblabel:"' + D.strings.pageBreak.replace(/["\\]/g, '') + '";}\n';
     }
@@ -243,6 +239,7 @@
       var r = s.getRangeAt(0);
       if (body.contains(r.commonAncestorContainer)) {
         lastRange = r.cloneRange();
+        updateCellSel();
         stateSoon();
       }
     }
@@ -361,12 +358,16 @@
   function snap() {
     var r = range(), s = null;
     if (r) s = { sp: pathOf(r.startContainer), so: r.startOffset, ep: pathOf(r.endContainer), eo: r.endOffset };
-    return { h: body.innerHTML, s: s };
+    return { h: body.innerHTML, s: s, p: JSON.stringify(P) };
   }
 
   function restoreSnap(st) {
     body.innerHTML = st.h;
     selImg = null;
+    cellSel = null;
+    pinnedSel = null;
+    document.body.classList.remove('cellsel');
+    if (st.p && st.p !== JSON.stringify(P)) { P = JSON.parse(st.p); applyPage(); }
     if (st.s && st.s.sp && st.s.ep) {
       var a = nodeAt(st.s.sp), b = nodeAt(st.s.ep);
       if (a && b) {
@@ -412,7 +413,10 @@
 
   function afterChange(skipFix) {
     if (!skipFix) fixStructure();
+    if (cellSel && !cellSel.table.isConnected) setCellSel(null);
+    updateCellSel();
     renumberSoon();
+    decoSoon();
     clearTimeout(changeTimer);
     changeTimer = setTimeout(function () { Bridge.onChange(); }, 250);
     stateSoon();
@@ -429,7 +433,8 @@
   }
 
   function state() {
-    var st = { u: undoStack.length > 0, r: redoStack.length > 0, ed: editable, img: !!selImg };
+    var st = { u: undoStack.length > 0, r: redoStack.length > 0, ed: editable, img: !!selImg, view: view,
+      orient: P.orient || ((+P.w || 0) > (+P.h || 0) ? 'landscape' : 'portrait'), cells: cellSel ? cellSel.cells.length : 0 };
     var r = range();
     if (!r) return st;
     var node = r.startContainer;
@@ -461,9 +466,14 @@
       st.sb = p.dataset.sb || '0';
       st.sa = p.dataset.sa || '0';
     }
-    var td = closestTag(el, 'TD');
+    var td = closestTag(el, 'TD') || (cellSel && cellSel.cells[0]);
     st.tbl = !!td;
-    if (td) st.bg = td.dataset.bg || '';
+    if (td) {
+      st.bg = td.dataset.bg || '';
+      st.merged = (td.colSpan || 1) > 1 || (td.rowSpan || 1) > 1;
+      st.cva = td.dataset.va || (td.style.verticalAlign === 'middle' ? 'center' : td.style.verticalAlign) || 'top';
+    }
+    st.cells = cellSel ? cellSel.cells.length : 0;
     st.sel = !r.collapsed;
     return st;
   }
@@ -639,6 +649,17 @@
   }
 
   function applyRuns(fn) {
+    if (cellSel) {
+      // a block of cells: every run of every selected cell (the text of the other columns is left alone)
+      var all = [];
+      cellSel.cells.forEach(function (td) {
+        var cr = document.createRange();
+        cr.selectNodeContents(td);
+        all = all.concat(selectedRuns(cr).runs);
+      });
+      fn(all);
+      return;
+    }
     var r = range();
     if (!r) return;
     if (r.collapsed) {
@@ -721,10 +742,21 @@
 
   // ------------------------------------------------------------------ paragraph formatting
 
-  function forParas(fn) {
+  /** Paragraphs the next paragraph command applies to: those of the selected cells, or of the selection. */
+  function selParas() {
+    if (cellSel) {
+      var out = [];
+      cellSel.cells.forEach(function (td) {
+        Array.prototype.forEach.call(td.querySelectorAll('p'), function (p) { out.push(p); });
+      });
+      return out;
+    }
     var r = range();
-    if (!r) return;
-    parasInRange(r).forEach(function (p) { fn(p); styleP(p); });
+    return r ? parasInRange(r) : [];
+  }
+
+  function forParas(fn) {
+    selParas().forEach(function (p) { fn(p); styleP(p); });
   }
 
   api.setAlign = cmd(function (al) { forParas(function (p) { p.dataset.al = al; }); });
@@ -801,9 +833,7 @@
   }
 
   api.toggleList = cmd(function (kind) {
-    var r = range();
-    if (!r) return;
-    var ps = parasInRange(r);
+    var ps = selParas();
     if (!ps.length) return;
     var all = ps.every(function (p) { return listKind(p) === kind; });
     if (all) {
@@ -1020,15 +1050,25 @@
     if (firstP) caretAt(firstP, 0);
   });
 
+  /** The cell a table command works from: an edge of the selected block, or the cell with the caret. */
+  function opCell(after) {
+    if (cellSel) {
+      var g = grid(cellSel.table);
+      var row = after ? cellSel.r2 : cellSel.r1, col = after ? cellSel.c2 : cellSel.c1;
+      return (g[row] && g[row][col]) || cellSel.cells[0];
+    }
+    return curCell();
+  }
+
   api.tableRow = cmd(function (after) {
-    var td = curCell();
+    var td = opCell(after);
     if (!td) return;
     var table = closestTag(td, 'TABLE');
     var g = grid(table);
-    var tr = td.parentNode;
-    var ri = Array.prototype.indexOf.call(table.rows, tr);
+    var ri = after ? td._row + (td.rowSpan || 1) - 1 : td._row;
+    var tr = table.rows[ri];
     var boundary = after ? ri + 1 : ri;
-    var refRow = g[after ? ri : ri] || [];
+    var refRow = g[ri] || [];
     var nr = tr.cloneNode(false);
     var seen = [];
     for (var c = 0; c < refRow.length; c++) {
@@ -1052,7 +1092,7 @@
   });
 
   api.tableCol = cmd(function (after) {
-    var td = curCell();
+    var td = opCell(after);
     if (!td) return;
     var table = closestTag(td, 'TABLE');
     var g = grid(table);
@@ -1073,12 +1113,31 @@
 
   api.tableDelRow = cmd(function () {
     var td = curCell();
+    if (cellSel) {
+      // every row of the block, bottom first
+      var t = cellSel.table, r1 = cellSel.r1, r2 = cellSel.r2;
+      setCellSel(null);
+      for (var ri = r2; ri >= r1; ri--) {
+        if (!t.parentNode) return;
+        if (!delRowAt(t, ri)) return;
+      }
+      var f = t.querySelector('td p');
+      if (f) caretAt(f, 0);
+      return;
+    }
     if (!td) return;
     var table = closestTag(td, 'TABLE');
+    if (!delRowAt(table, Array.prototype.indexOf.call(table.rows, td.parentNode))) return;
+    var first = table.querySelector('td p');
+    if (first) caretAt(first, 0);
+  });
+
+  /** Removes row [ri] (cells merged across it shrink); false when that removed the whole table. */
+  function delRowAt(table, ri) {
     var g = grid(table);
-    var tr = td.parentNode;
-    var ri = Array.prototype.indexOf.call(table.rows, tr);
-    if (table.rows.length <= 1) { removeTable(table); return; }
+    var tr = table.rows[ri];
+    if (!tr) return true;
+    if (table.rows.length <= 1) { removeTable(table); return false; }
     var seen = [];
     (g[ri] || []).forEach(function (cell) {
       if (!cell || seen.indexOf(cell) >= 0) return;
@@ -1094,16 +1153,30 @@
       next.insertBefore(cell, ref);
     });
     tr.parentNode.removeChild(tr);
+    return true;
+  }
+
+  api.tableDelCol = cmd(function () {
+    if (cellSel) {
+      var t = cellSel.table, c1 = cellSel.c1, c2 = cellSel.c2;
+      setCellSel(null);
+      for (var c = c2; c >= c1; c--) { if (!delColAt(t, c)) return; }
+      var f = t.querySelector('td p');
+      if (f) caretAt(f, 0);
+      return;
+    }
+    var td = curCell();
+    if (!td) return;
+    var table = closestTag(td, 'TABLE');
+    grid(table);
+    if (!delColAt(table, td._col)) return;
     var first = table.querySelector('td p');
     if (first) caretAt(first, 0);
   });
 
-  api.tableDelCol = cmd(function () {
-    var td = curCell();
-    if (!td) return;
-    var table = closestTag(td, 'TABLE');
+  /** Removes grid column [col]; false when the table is gone. */
+  function delColAt(table, col) {
     var g = grid(table);
-    var col = td._col;
     var seen = [];
     for (var ri = 0; ri < g.length; ri++) {
       var cell = g[ri] && g[ri][col];
@@ -1113,10 +1186,9 @@
       else cell.parentNode.removeChild(cell);
     }
     Array.prototype.slice.call(table.rows).forEach(function (tr) { if (!tr.cells.length) tr.parentNode.removeChild(tr); });
-    if (!table.querySelector('td')) { removeTable(table); return; }
-    var first = table.querySelector('td p');
-    if (first) caretAt(first, 0);
-  });
+    if (!table.querySelector('td')) { removeTable(table); return false; }
+    return true;
+  }
 
   function removeTable(table) {
     var par = table.parentNode;
@@ -1133,9 +1205,11 @@
     removeTable(closestTag(td, 'TABLE'));
   });
 
-  api.cellBg = cmd(function (hex) {
+  /** Cells a cell command applies to: the selected block, the cells the selection touches, or the caret's cell. */
+  function targetCells() {
+    if (cellSel) return cellSel.cells.slice();
     var r = range();
-    if (!r) return;
+    if (!r) return [];
     var cells = [];
     var start = closestTag(r.startContainer, 'TD');
     if (!r.collapsed) {
@@ -1143,17 +1217,314 @@
       for (var i = 0; i < all.length; i++) if (r.intersectsNode(all[i]) && !all[i].querySelector('td')) cells.push(all[i]);
     }
     if (!cells.length && start) cells.push(start);
-    cells.forEach(function (td) {
+    return cells;
+  }
+
+  api.cellBg = cmd(function (hex) {
+    targetCells().forEach(function (td) {
       if (hex) { td.dataset.bg = hex; td.style.backgroundColor = '#' + hex; }
       else { td.dataset.bg = ''; td.style.backgroundColor = ''; }
     });
   });
 
   api.tableDir = cmd(function () {
-    var td = curCell();
+    var td = curCell() || (cellSel && cellSel.cells[0]);
     if (!td) return;
     var t = closestTag(td, 'TABLE');
     t.setAttribute('dir', t.getAttribute('dir') === 'rtl' ? 'ltr' : 'rtl');
+  });
+
+  // ------------------------------------------------------------------ cell block (select a column, a row…)
+
+  /** A rectangle of cells, like Word: {table, r1, c1, r2, c2, cells}. Commands then act on those cells only. */
+  var cellSel = null;
+
+  function blockOf(table, a, b) {
+    var g = grid(table);
+    var r1 = Math.min(a._row, b._row), c1 = Math.min(a._col, b._col);
+    var r2 = Math.max(a._row + (a.rowSpan || 1) - 1, b._row + (b.rowSpan || 1) - 1);
+    var c2 = Math.max(a._col + (a.colSpan || 1) - 1, b._col + (b.colSpan || 1) - 1);
+    var grown = true;
+    while (grown) {
+      // a merged cell sticking out of the rectangle widens it, as in Word
+      grown = false;
+      for (var r = r1; r <= r2; r++) {
+        for (var c = c1; c <= c2; c++) {
+          var td = g[r] && g[r][c];
+          if (!td) continue;
+          var e1 = td._row, e2 = td._row + (td.rowSpan || 1) - 1, f1 = td._col, f2 = td._col + (td.colSpan || 1) - 1;
+          if (e1 < r1) { r1 = e1; grown = true; }
+          if (e2 > r2) { r2 = e2; grown = true; }
+          if (f1 < c1) { c1 = f1; grown = true; }
+          if (f2 > c2) { c2 = f2; grown = true; }
+        }
+      }
+    }
+    var cells = [];
+    for (var rr = r1; rr <= r2; rr++) {
+      for (var cc = c1; cc <= c2; cc++) {
+        var cell = g[rr] && g[rr][cc];
+        if (cell && cells.indexOf(cell) < 0) cells.push(cell);
+      }
+    }
+    return { table: table, r1: r1, c1: c1, r2: r2, c2: c2, cells: cells };
+  }
+
+  function cellChain(n) {
+    var out = [];
+    var td = closestTag(n, 'TD');
+    while (td) { out.push(td); td = closestTag(td.parentNode, 'TD'); }
+    return out;
+  }
+
+  /** Two different cells of one table holding the ends of the selection, or null. */
+  function blockEnds(s) {
+    if (!s.rangeCount || s.isCollapsed || !s.anchorNode || !s.focusNode) return null;
+    if (!body.contains(s.anchorNode) || !body.contains(s.focusNode)) return null;
+    var A = cellChain(s.anchorNode), B = cellChain(s.focusNode);
+    for (var i = 0; i < A.length; i++) {
+      var ta = closestTag(A[i], 'TABLE');
+      for (var j = 0; j < B.length; j++) {
+        if (A[i] === B[j]) return null;
+        if (closestTag(B[j], 'TABLE') === ta) return [ta, A[i], B[j]];
+      }
+    }
+    return null;
+  }
+
+  function updateCellSel() {
+    if (pinnedSel) {
+      // a block chosen with a button stays until the selection really moves
+      var s0 = window.getSelection();
+      if (s0.rangeCount && pinnedSel.r && s0.getRangeAt(0).compareBoundaryPoints(Range.START_TO_START, pinnedSel.r) === 0 &&
+          s0.getRangeAt(0).compareBoundaryPoints(Range.END_TO_END, pinnedSel.r) === 0 && pinnedSel.b.table.isConnected) {
+        setCellSel(pinnedSel.b);
+        return;
+      }
+      pinnedSel = null;
+    }
+    var ends = blockEnds(window.getSelection());
+    setCellSel(ends ? blockOf(ends[0], ends[1], ends[2]) : null);
+  }
+
+  var pinnedSel = null;
+
+  function sameBlock(a, b) {
+    if (!a || !b) return a === b;
+    if (a.table !== b.table || a.r1 !== b.r1 || a.r2 !== b.r2 || a.c1 !== b.c1 || a.c2 !== b.c2) return false;
+    if (a.cells.length !== b.cells.length) return false;
+    for (var i = 0; i < a.cells.length; i++) if (a.cells[i] !== b.cells[i] || !a.cells[i].isConnected) return false;
+    return true;
+  }
+
+  function setCellSel(next) {
+    if (sameBlock(cellSel, next)) return;
+    if (cellSel) cellSel.cells.forEach(function (td) { td.classList.remove('csel'); });
+    var old = document.querySelectorAll('#body td.csel');
+    for (var i = 0; i < old.length; i++) old[i].classList.remove('csel');
+    cellSel = next;
+    if (cellSel) cellSel.cells.forEach(function (td) { td.classList.add('csel'); });
+    document.body.classList.toggle('cellsel', !!cellSel);
+    stateSoon();
+  }
+
+  /** Selects the caret's cell, row, column or whole table (a block of cells). */
+  api.selectCells = function (kind) {
+    if (!editable) return;
+    focusBody();
+    var td = curCell() || (cellSel && cellSel.cells[0]);
+    if (!td) return;
+    var table = closestTag(td, 'TABLE');
+    var g = grid(table);
+    var a, b;
+    if (kind === 'row') { a = g[td._row][0]; b = g[td._row][g[td._row].length - 1]; }
+    else if (kind === 'col') { a = g[0][td._col]; b = g[g.length - 1][td._col]; }
+    else if (kind === 'table') { a = g[0][0]; var last = g[g.length - 1]; b = last[last.length - 1]; }
+    else { a = td; b = td; }
+    if (!a || !b) return;
+    var r = document.createRange();
+    r.setStart(a, 0);
+    r.setEnd(b, b.childNodes.length);
+    setRange(r);
+    var blk = blockOf(table, a, b);
+    pinnedSel = { r: r.cloneRange(), b: blk };
+    setCellSel(blk);
+  };
+
+  /** Clears the text of the selected cells (the cells stay), keeping each cell's first paragraph look. */
+  function clearBlock() {
+    if (!cellSel) return null;
+    var first = cellSel.cells[0];
+    cellSel.cells.forEach(function (td) {
+      var p0 = td.querySelector('p');
+      var keep = p0 ? p0.cloneNode(false) : null;
+      while (td.firstChild) td.removeChild(td.firstChild);
+      var p = keep || newTablePara(null);
+      p.innerHTML = '<br>';
+      td.appendChild(p);
+    });
+    return first;
+  }
+
+  function collapseInto(td) {
+    var p = td.querySelector('p') || td;
+    setCellSel(null);
+    pinnedSel = null;
+    var r = document.createRange();
+    r.selectNodeContents(p);
+    r.collapse(true);
+    setRange(r);
+  }
+
+  /** Text of the block, one line per row and a tab between cells (pastes as a table in Word and Excel). */
+  function blockText() {
+    if (!cellSel) return '';
+    var g = grid(cellSel.table);
+    var lines = [];
+    for (var r = cellSel.r1; r <= cellSel.r2; r++) {
+      var row = [], seen = [];
+      for (var c = cellSel.c1; c <= cellSel.c2; c++) {
+        var td = g[r] && g[r][c];
+        if (!td || seen.indexOf(td) >= 0) continue;
+        seen.push(td);
+        row.push(td._row === r ? (td.innerText || '').replace(ZW, '').replace(/\n+$/, '').replace(/\n/g, ' ') : '');
+      }
+      lines.push(row.join('\t'));
+    }
+    return lines.join('\n');
+  }
+
+  api.mergeCells = cmd(function () {
+    if (!cellSel || cellSel.cells.length < 2) return;
+    var b = cellSel, g = grid(b.table);
+    var first = g[b.r1][b.c1];
+    var firstEmpty = isEmptyCell(first);
+    b.cells.forEach(function (td) {
+      if (td === first) return;
+      if (!isEmptyCell(td)) {
+        if (firstEmpty) { while (first.firstChild) first.removeChild(first.firstChild); firstEmpty = false; }
+        while (td.firstChild) first.appendChild(td.firstChild);
+      }
+      td.parentNode.removeChild(td);
+    });
+    var cs = b.c2 - b.c1 + 1, rs = b.r2 - b.r1 + 1;
+    if (cs > 1) first.colSpan = cs; else first.removeAttribute('colspan');
+    if (rs > 1) first.rowSpan = rs; else first.removeAttribute('rowspan');
+    if (!first.querySelector('p')) first.appendChild(newTablePara(null));
+    collapseInto(first);
+  });
+
+  function isEmptyCell(td) {
+    return td.textContent.replace(ZW, '').trim() === '' && !td.querySelector('img,table,.raw:not(.bm)');
+  }
+
+  /** Splits a merged cell back into single cells (the text stays in the first one). */
+  api.splitCell = cmd(function () {
+    var td = cellSel && cellSel.cells.length === 1 ? cellSel.cells[0] : curCell();
+    if (!td) return;
+    var cs = td.colSpan || 1, rs = td.rowSpan || 1;
+    if (cs === 1 && rs === 1) return;
+    var table = closestTag(td, 'TABLE');
+    grid(table);
+    var r0 = td._row, c0 = td._col;
+    td.removeAttribute('colspan');
+    td.removeAttribute('rowspan');
+    for (var k = 1; k < cs; k++) td.parentNode.insertBefore(emptyCellLike(td), td.nextSibling);
+    for (var r = r0 + 1; r < r0 + rs; r++) {
+      var tr = table.rows[r];
+      if (!tr) break;
+      var ref = null;
+      for (var i = 0; i < tr.cells.length; i++) if (tr.cells[i]._col > c0) { ref = tr.cells[i]; break; }
+      for (var k2 = 0; k2 < cs; k2++) tr.insertBefore(emptyCellLike(td), ref);
+    }
+    collapseInto(td);
+  });
+
+  var THIN = '0.5pt solid #000';
+  var SIDE_CSS = { t: 'borderTop', b: 'borderBottom', s: 'borderInlineStart', e: 'borderInlineEnd' };
+
+  /** Sets cell sides: v is '1' (thin line), '0' (none) or 'k' (leave as it is). */
+  function setSides(td, t, b, s, e) {
+    var cur = (td.dataset.bd || 'k,k,k,k').split(',');
+    var next = [t, b, s, e];
+    ['t', 'b', 's', 'e'].forEach(function (side, i) {
+      var v = next[i];
+      if (v === 'k') return;
+      cur[i] = v;
+      td.style[SIDE_CSS[side]] = v === '1' ? THIN : 'none';
+    });
+    td.dataset.bd = cur.join(',');
+  }
+
+  /** Table borders: 'all', 'none', 'outside' or 'inside' for the selected cells (or the whole table). */
+  api.cellBorders = cmd(function (kind) {
+    var cells = targetCells();
+    if (!cells.length) return;
+    var table = closestTag(cells[0], 'TABLE');
+    var g = grid(table);
+    var blk;
+    if (cellSel) blk = cellSel;
+    else if (cells.length === 1 && !(range() && !range().collapsed)) {
+      // nothing selected: the whole table
+      blk = blockOf(table, g[0][0], g[g.length - 1][g[g.length - 1].length - 1]);
+      cells = blk.cells;
+    } else blk = blockOf(table, cells[0], cells[cells.length - 1]);
+    g = grid(table);
+    cells.forEach(function (td) {
+      var top = td._row === blk.r1, bottom = td._row + (td.rowSpan || 1) - 1 === blk.r2;
+      var start = td._col === blk.c1, end = td._col + (td.colSpan || 1) - 1 === blk.c2;
+      var edge = function (out) {
+        if (kind === 'all') return '1';
+        if (kind === 'none') return '0';
+        if (kind === 'outside') return out ? '1' : 'k';
+        return out ? 'k' : '1';
+      };
+      setSides(td, edge(top), edge(bottom), edge(start), edge(end));
+    });
+    if (kind === 'none' || kind === 'inside') {
+      // the neighbours' facing sides go too, or their line would still show on the shared edge
+      cells.forEach(function (td) {
+        var r1 = td._row, r2 = td._row + (td.rowSpan || 1) - 1, c1 = td._col, c2 = td._col + (td.colSpan || 1) - 1;
+        for (var c = c1; c <= c2; c++) {
+          var up = g[r1 - 1] && g[r1 - 1][c], down = g[r2 + 1] && g[r2 + 1][c];
+          if (kind === 'none') {
+            if (up && cells.indexOf(up) < 0) setSides(up, 'k', '0', 'k', 'k');
+            if (down && cells.indexOf(down) < 0) setSides(down, '0', 'k', 'k', 'k');
+          }
+        }
+        for (var r = r1; r <= r2; r++) {
+          var before = g[r] && g[r][c1 - 1], after = g[r] && g[r][c2 + 1];
+          if (kind === 'none') {
+            if (before && cells.indexOf(before) < 0) setSides(before, 'k', 'k', 'k', '0');
+            if (after && cells.indexOf(after) < 0) setSides(after, 'k', 'k', '0', 'k');
+          }
+        }
+      });
+    }
+  });
+
+  /** Vertical alignment of the text in the selected cells: 'top', 'center' or 'bottom'. */
+  api.cellVAlign = cmd(function (v) {
+    targetCells().forEach(function (td) {
+      td.dataset.va = v;
+      td.style.verticalAlign = v === 'center' ? 'middle' : v;
+    });
+  });
+
+  document.addEventListener('copy', function (e) {
+    if (!cellSel || !e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', blockText());
+  });
+
+  document.addEventListener('cut', function (e) {
+    if (!cellSel || !e.clipboardData || !editable) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', blockText());
+    pushUndo();
+    var first = clearBlock();
+    if (first) collapseInto(first);
+    afterChange();
   });
 
   // ------------------------------------------------------------------ find & replace
@@ -1281,6 +1652,265 @@
 
   api.findClear = function () { clearFind(); };
 
+
+  // ------------------------------------------------------------------ page setup & decoration
+
+  /** Page settings in twips ({w,h,orient,mt,mb,ml,mr,border,bg,wm,pnHas}); P.changed lists what the user changed. */
+  var P = JSON.parse(JSON.stringify(D.sect || {}));
+  if (!P.changed) P.changed = {};
+
+  var BORDER_CSS = {
+    single: 'solid', thick: 'solid', double: 'double', triple: 'double', dotted: 'dotted', dashed: 'dashed',
+    dashSmallGap: 'dashed', dotDash: 'dashed', dotDotDash: 'dotted', thinThickSmallGap: 'double',
+    thickThinSmallGap: 'double', thinThickMediumGap: 'double', thickThinMediumGap: 'double',
+    thinThickLargeGap: 'double', thickThinLargeGap: 'double', thinThickThinSmallGap: 'double',
+    wave: 'wave', doubleWave: 'wave', threeDEmboss: 'ridge', threeDEngrave: 'groove', outset: 'outset', inset: 'inset'
+  };
+  // Word's picture borders, drawn here with a similar symbol (Word draws the real pictures)
+  var ART = {
+    stars: ['★', '#f2b705'], starsBlack: ['★', '#222222'], hearts: ['♥', '#e53935'],
+    apples: ['●', '#d32f2f'], pencils: ['✎', '#ef6c00'], flowersTiny: ['✿', '#ec407a'],
+    flowersDaisies: ['❀', '#f9a825'], basicBlackDots: ['●', '#222222'], triangles: ['▲', '#1e88e5'],
+    musicNotes: ['♪', '#5e35b1'], sun: ['☀', '#fbc02d'], balloons3Colors: ['●', '#43a047'],
+    checkedBarBlack: ['■', '#222222'], zigZag: ['∧', '#222222']
+  };
+
+  function twPx(t) { return Math.round((+t || 0) / 15); }
+  function ptPx(pt) { return pt * 4 / 3; }
+
+  function svgUrl(svg) { return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")'; }
+
+  /** A 3×3 picture for border-image: a symbol in each of the 8 outer squares. */
+  function artImage(glyph, color) {
+    var u = 20, t = '';
+    for (var y = 0; y < 3; y++) for (var x = 0; x < 3; x++) {
+      if (x === 1 && y === 1) continue;
+      t += '<text x="' + (x * u + u / 2) + '" y="' + (y * u + u * 0.8) + '" font-size="' + (u * 0.86) +
+        '" text-anchor="middle" font-family="sans-serif" fill="' + color + '">' + glyph + '</text>';
+    }
+    return svgUrl('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">' + t + '</svg>');
+  }
+
+  function waveImage(color) {
+    var c = 'fill="none" stroke="' + color + '" stroke-width="2"';
+    var h = 'M0,10 q5,-6 10,0 t10,0';
+    var v = 'M10,0 q-6,5 0,10 t0,10';
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">' +
+      '<path ' + c + ' transform="translate(20,0)" d="' + h + '"/><path ' + c + ' transform="translate(20,40)" d="' + h + '"/>' +
+      '<path ' + c + ' transform="translate(0,20)" d="' + v + '"/><path ' + c + ' transform="translate(40,20)" d="' + v + '"/>' +
+      '<circle cx="10" cy="10" r="3" ' + c + '/><circle cx="50" cy="10" r="3" ' + c + '/>' +
+      '<circle cx="10" cy="50" r="3" ' + c + '/><circle cx="50" cy="50" r="3" ' + c + '/></svg>';
+    return svgUrl(svg);
+  }
+
+  function borderColor(b) { return !b.color || b.color === 'auto' ? '#000000' : '#' + b.color; }
+
+  /** Border width in px: picture borders give w:sz in points, lines in eighths of a point. */
+  function borderPx(b) {
+    if (b.art) return Math.max(6, ptPx(b.sz || 12));
+    var w = Math.max(0.75, ptPx((b.sz || 4) / 8));
+    var css = BORDER_CSS[b.style] || 'solid';
+    if (css === 'double') w = Math.max(3, w * 3);
+    if (css === 'ridge' || css === 'groove' || css === 'inset' || css === 'outset') w = Math.max(3, w * 2);
+    if (css === 'wave') w = Math.max(6, w * 4);
+    return w;
+  }
+
+  function styleBorder(el, b) {
+    var w = borderPx(b), color = borderColor(b);
+    var css = BORDER_CSS[b.style] || 'solid';
+    if (b.art || css === 'wave') {
+      var a = ART[b.style] || ['●', color];
+      el.style.border = w + 'px solid transparent';
+      el.style.borderImageSource = b.art ? artImage(a[0], b.color && b.color !== 'auto' ? color : a[1]) : waveImage(color);
+      el.style.borderImageSlice = '20';
+      el.style.borderImageRepeat = 'round';
+    } else {
+      el.style.border = w + 'px ' + css + ' ' + color;
+    }
+  }
+
+  /** Where the border sits on a page (px from each page edge). */
+  function borderBox(b) {
+    var sp = ptPx(b.space == null ? 24 : +b.space), w = borderPx(b);
+    if (b.from === 'text') {
+      return { t: Math.max(0, D.page.mt - sp - w), b: Math.max(0, D.page.mb - sp - w), l: Math.max(0, D.page.ml - sp - w), r: Math.max(0, D.page.mr - sp - w) };
+    }
+    return { t: sp, b: sp, l: sp, r: sp };
+  }
+
+  function pageLabel(i, n, fmt) {
+    if (fmt === 'dash') return '- ' + i + ' -';
+    if (fmt === 'of') return i + ' / ' + n;
+    if (fmt === 'word') return D.rtl ? 'الصفحة ' + i + ' من ' + n : 'Page ' + i + ' sur ' + n;
+    return String(i);
+  }
+
+  function hexA(hex, a) {
+    var h = (hex || 'C0C0C0').replace('#', '');
+    if (h.length !== 6) h = 'C0C0C0';
+    return 'rgba(' + parseInt(h.substr(0, 2), 16) + ',' + parseInt(h.substr(2, 2), 16) + ',' + parseInt(h.substr(4, 2), 16) + ',' + a + ')';
+  }
+
+  function wmFont(text, diag) {
+    var cw = D.page.w - D.page.ml - D.page.mr, ch = D.page.h - D.page.mt - D.page.mb;
+    var room = diag ? Math.sqrt(cw * cw + ch * ch) * 0.72 : cw * 0.9;
+    var fs = room / Math.max(2, text.length * 0.62);
+    return Math.max(18, Math.min(fs, diag ? ch * 0.32 : ch * 0.25));
+  }
+
+  var decoTimer = 0;
+  function decoSoon() { clearTimeout(decoTimer); decoTimer = setTimeout(deco, 220); }
+
+  /** Draws the page border, watermark and page numbers on every page of the page view. */
+  function deco() {
+    var old = paper.querySelectorAll('.pgdeco');
+    for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+    var pn = P.pn && typeof P.pn === 'object' ? P.pn : null;
+    var wm = P.wm && P.wm.text ? P.wm : null;
+    // page numbers chosen here replace the ones the header / footer preview shows
+    document.body.classList.toggle('pnchanged', !!(P.changed && P.changed.pn));
+    paper.style.minHeight = '';
+    if (view !== 'page' || !D.page || (!P.border && !wm && !pn)) return;
+    var ph = D.page.h, pw = D.page.w;
+    var n = Math.max(1, Math.ceil((paper.scrollHeight - 4) / ph));
+    // whole pages, so every page shows its frame
+    paper.style.minHeight = (n * ph) + 'px';
+    var frag = document.createDocumentFragment();
+    for (var k = 0; k < n; k++) {
+      var d = document.createElement('div');
+      d.className = 'pgdeco';
+      d.style.top = (k * ph) + 'px';
+      d.style.width = pw + 'px';
+      d.style.height = ph + 'px';
+      if (P.border) {
+        var bx = document.createElement('div');
+        bx.className = 'pgb';
+        var box = borderBox(P.border);
+        bx.style.top = box.t + 'px'; bx.style.bottom = box.b + 'px'; bx.style.left = box.l + 'px'; bx.style.right = box.r + 'px';
+        styleBorder(bx, P.border);
+        d.appendChild(bx);
+      }
+      if (wm) {
+        var w = document.createElement('div');
+        w.className = 'pgwm';
+        w.textContent = wm.text;
+        w.style.color = hexA(wm.color, 0.38);
+        w.style.fontSize = wmFont(wm.text, wm.diag !== false) + 'px';
+        w.style.left = (D.page.ml + (pw - D.page.ml - D.page.mr) / 2) + 'px';
+        w.style.top = (D.page.mt + (ph - D.page.mt - D.page.mb) / 2) + 'px';
+        w.style.transform = 'translate(-50%,-50%)' + (wm.diag !== false ? ' rotate(-45deg)' : '');
+        if (wm.font) w.style.fontFamily = stack(wm.font);
+        d.appendChild(w);
+      }
+      if (pn) {
+        var num = document.createElement('div');
+        num.className = 'pgnum';
+        num.textContent = pageLabel(k + 1, n, pn.fmt);
+        var top = pn.pos.charAt(0) === 't';
+        num.style.top = (top ? D.page.mt / 2 : ph - D.page.mb / 2) + 'px';
+        var hpos = pn.pos.charAt(1);
+        if (hpos === 'l') { num.style.left = D.page.ml + 'px'; num.style.transform = 'translateY(-50%)'; }
+        else if (hpos === 'r') { num.style.right = D.page.mr + 'px'; num.style.transform = 'translateY(-50%)'; }
+        else { num.style.left = (pw / 2) + 'px'; num.style.transform = 'translate(-50%,-50%)'; }
+        d.appendChild(num);
+      }
+      frag.appendChild(d);
+    }
+    paper.appendChild(frag);
+  }
+
+  /** Print / PDF: the same border, colour, watermark and numbers on every printed page. */
+  function printCss() {
+    var pg = D.page;
+    var css = '';
+    var b = P.border;
+    var page = 'size:' + pg.w + 'px ' + pg.h + 'px;';
+    if (b) {
+      var sp = b.from === 'text' ? null : ptPx(b.space == null ? 24 : +b.space);
+      var w = borderPx(b);
+      var cssStyle = BORDER_CSS[b.style] || 'solid';
+      if (b.art || cssStyle === 'wave') cssStyle = 'solid';
+      var color = b.art ? ((ART[b.style] || [0, '#000'])[1]) : borderColor(b);
+      if (sp === null) {
+        var bb = borderBox(b);
+        page += 'margin:' + bb.t + 'px ' + bb.r + 'px ' + bb.b + 'px ' + bb.l + 'px;';
+        page += 'padding:' + Math.max(0, pg.mt - bb.t - w) + 'px ' + Math.max(0, pg.mr - bb.r - w) + 'px ' + Math.max(0, pg.mb - bb.b - w) + 'px ' + Math.max(0, pg.ml - bb.l - w) + 'px;';
+      } else {
+        page += 'margin:' + sp + 'px;';
+        page += 'padding:' + Math.max(0, pg.mt - sp - w) + 'px ' + Math.max(0, pg.mr - sp - w) + 'px ' + Math.max(0, pg.mb - sp - w) + 'px ' + Math.max(0, pg.ml - sp - w) + 'px;';
+      }
+      page += 'border:' + Math.min(w, 8) + 'px ' + cssStyle + ' ' + color + ';';
+    } else {
+      page += 'margin:' + pg.mt + 'px ' + pg.mr + 'px ' + pg.mb + 'px ' + pg.ml + 'px;';
+    }
+    if (P.bg) page += 'background:#' + P.bg + ';';
+    var pn = P.pn && typeof P.pn === 'object' ? P.pn : null;
+    if (pn) {
+      var box = { tl: 'top-left', tc: 'top-center', tr: 'top-right', bl: 'bottom-left', bc: 'bottom-center', br: 'bottom-right' }[pn.pos] || 'bottom-center';
+      var content = pn.fmt === 'dash' ? '"- " counter(page) " -"' : pn.fmt === 'of' ? 'counter(page) " / " counter(pages)' :
+        pn.fmt === 'word' ? (D.rtl ? '"الصفحة " counter(page) " من " counter(pages)' : '"Page " counter(page) " sur " counter(pages)') : 'counter(page)';
+      page += '@' + box + '{content:' + content + ';font:11pt sans-serif;direction:' + (D.rtl ? 'rtl' : 'ltr') + ';}';
+    }
+    css += '@page{' + page + '}\n';
+    css += '@media print{html{-webkit-print-color-adjust:exact;print-color-adjust:exact;}';
+    if (P.bg) css += '#paper{background:transparent !important;}';
+    css += '}\n';
+    var el = document.getElementById('printvars');
+    if (!el) { el = document.createElement('style'); el.id = 'printvars'; document.head.appendChild(el); }
+    el.textContent = css;
+    var wm = P.wm && P.wm.text ? P.wm : null;
+    var pw = document.getElementById('printwm');
+    if (wm) {
+      if (!pw) { pw = document.createElement('div'); pw.id = 'printwm'; document.body.appendChild(pw); }
+      pw.textContent = wm.text;
+      pw.style.color = hexA(wm.color, 0.45);
+      pw.style.fontSize = wmFont(wm.text, wm.diag !== false) + 'px';
+      pw.style.transform = 'translate(-50%,-50%)' + (wm.diag !== false ? ' rotate(-45deg)' : '');
+    } else if (pw) {
+      pw.parentNode.removeChild(pw);
+    }
+  }
+
+  function applyPage() {
+    var w = +P.w || 11906, h = +P.h || 16838;
+    D.page = { w: twPx(w), h: twPx(h), mt: twPx(Math.abs(P.mt == null ? 1440 : P.mt)), mb: twPx(Math.abs(P.mb == null ? 1440 : P.mb)),
+      ml: twPx(P.ml == null ? 1440 : P.ml), mr: twPx(P.mr == null ? 1440 : P.mr) };
+    var st = paper.style;
+    st.setProperty('--pw', D.page.w + 'px');
+    st.setProperty('--ph', D.page.h + 'px');
+    st.setProperty('--mt', D.page.mt + 'px');
+    st.setProperty('--mb', D.page.mb + 'px');
+    st.setProperty('--ml', D.page.ml + 'px');
+    st.setProperty('--mr', D.page.mr + 'px');
+    st.backgroundColor = P.bg ? '#' + P.bg : '';
+    printCss();
+    fit();
+    deco();
+  }
+
+  var PAGE_GROUP = { w: 'size', h: 'size', orient: 'size', mt: 'margins', mb: 'margins', ml: 'margins', mr: 'margins',
+    border: 'border', bg: 'bg', wm: 'wm', pn: 'pn' };
+
+  /** Changes page settings: any of w,h,orient,mt,mb,ml,mr (twips), border, bg, wm, pn. */
+  api.setPage = cmd(function (json) {
+    var o = typeof json === 'string' ? JSON.parse(json) : json;
+    Object.keys(o).forEach(function (k) {
+      if (!PAGE_GROUP[k]) return;
+      P[k] = o[k];
+      P.changed[PAGE_GROUP[k]] = 1;
+    });
+    applyPage();
+  });
+
+  api.page = function () { return JSON.stringify(P); };
+
+  function pageOut() {
+    var any = false;
+    for (var k in P.changed) if (P.changed[k]) any = true;
+    return any ? P : null;
+  }
+
   // ------------------------------------------------------------------ serialisation
 
   function runProps(span) {
@@ -1388,6 +2018,8 @@
       Array.prototype.forEach.call(tr.cells, function (td) {
         var c = { cs: td.colSpan || 1, rs: td.rowSpan || 1, bg: td.dataset.bg || '', c: serBlocks(td) };
         if (td.dataset.x) c.x = +td.dataset.x;
+        if (td.dataset.bd) c.bd = td.dataset.bd;
+        if (td.dataset.va) c.va = td.dataset.va;
         row.cells.push(c);
       });
       o.rows.push(row);
@@ -1419,7 +2051,10 @@
 
   api.serialize = function (token) {
     fixStructure();
-    var data = JSON.stringify({ blocks: serBlocks(body) });
+    var out = { blocks: serBlocks(body) };
+    var pg = pageOut();
+    if (pg) out.page = pg;
+    var data = JSON.stringify(out);
     Bridge.onResult(token, data);
   };
 
@@ -1475,6 +2110,7 @@
     document.body.classList.toggle('view-page', view === 'page');
     document.body.classList.toggle('view-mobile', view === 'mobile');
     fit();
+    deco();
   };
 
   api.setBottomInset = function (px) {
@@ -1524,6 +2160,10 @@
     if (!editable) return;
     e.preventDefault();
     var txt = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+    if (cellSel) {
+      var first = clearBlock();
+      if (first) collapseInto(first);
+    }
     pasteText(txt);
   });
 
@@ -1539,6 +2179,16 @@
       var dt = e.dataTransfer;
       var txt = dt ? dt.getData('text/plain') : '';
       if (txt) pasteText(txt);
+      return;
+    }
+    if (cellSel && (t.indexOf('delete') === 0 || t.indexOf('insert') === 0 || t === 'formatBold')) {
+      // typing or deleting over a block clears those cells only (never the text of the columns in between)
+      e.preventDefault();
+      pushUndo();
+      var first = clearBlock();
+      if (first) collapseInto(first);
+      if (t === 'insertText' && e.data) document.execCommand('insertText', false, e.data);
+      afterChange();
       return;
     }
     var r = range();
@@ -1577,6 +2227,14 @@
 
   body.addEventListener('keydown', function (e) {
     if (!editable) return;
+    if (cellSel && (e.keyCode === 229 || e.key === 'Unidentified')) {
+      // a phone keyboard is about to type over the block: empty those cells first and type in the first one
+      pushUndo();
+      var first = clearBlock();
+      if (first) collapseInto(first);
+      afterChange();
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       document.execCommand('insertText', false, '\t');
@@ -1590,7 +2248,7 @@
     }
   });
 
-  window.addEventListener('resize', fit);
+  window.addEventListener('resize', function () { fit(); decoSoon(); });
 
   // ------------------------------------------------------------------ start
 
@@ -1599,7 +2257,11 @@
     buildStyleCss();
     styleAll(document);
     renumber();
+    view = D.view === 'mobile' ? 'mobile' : 'page';
+    applyPage();
     api.setView(D.view || 'page');
+    // pictures change the height: redraw the page frames when they arrive
+    Array.prototype.forEach.call(document.images, function (im) { if (!im.complete) im.addEventListener('load', decoSoon); });
     api.setEditable(false);
     Bridge.onReady();
   }

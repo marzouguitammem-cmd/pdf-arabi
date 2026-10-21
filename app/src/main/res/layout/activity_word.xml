@@ -204,22 +204,85 @@
                 android:background="?attr/colorOutlineVariant"
                 android:visibility="gone" />
 
-            <HorizontalScrollView
+            <!-- ribbon: tab picker, the tab's buttons, and a button that opens all its commands with names -->
+            <LinearLayout
+                android:id="@+id/ribbonHeader"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none">
+                android:layout_height="52dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingEnd="2dp">
+
+                <TextView
+                    android:id="@+id/tabButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:background="@drawable/bg_round_surface"
+                    android:drawablePadding="2dp"
+                    android:fontFamily="@font/tajawal"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="6dp"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    android:textStyle="bold" />
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="2dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <HorizontalScrollView
+                    android:id="@+id/stripScroll"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/wtools"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="2dp"
+                        android:paddingEnd="4dp" />
+                </HorizontalScrollView>
+
+                <ImageView
+                    android:id="@+id/expandBtn"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/w_all_commands"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_up"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <View
+                android:id="@+id/panelDivider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?attr/colorOutlineVariant"
+                android:visibility="gone" />
+
+            <androidx.core.widget.NestedScrollView
+                android:id="@+id/ribbonPanel"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:visibility="gone">
 
                 <LinearLayout
-                    android:id="@+id/wtools"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/panelList"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="4dp"
-                    android:paddingBottom="4dp" />
-            </HorizontalScrollView>
+                    android:orientation="vertical"
+                    android:paddingBottom="8dp" />
+            </androidx.core.widget.NestedScrollView>
         </LinearLayout>
     </LinearLayout>
 

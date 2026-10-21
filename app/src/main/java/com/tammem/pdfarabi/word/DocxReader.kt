@@ -198,6 +198,7 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
 
         val info = JSONObject()
         info.put("page", JSONObject().put("w", px(pw)).put("h", px(ph)).put("mt", px(mt)).put("mb", px(mb)).put("ml", px(ml)).put("mr", px(mr)))
+        info.put("sect", sectInfo(sect, background, pw, ph, mt, mb, ml, mr))
         info.put("defStyle", defStyle)
         info.put("rtl", rtl)
         info.put("view", view)
@@ -251,6 +252,44 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
             max(1440, pw - ml - mr), rtl, maxDocPr, realIds.contains("TableGrid"),
             quickStyles().map { it to styleName(it) }, usedFonts.toList()
         )
+    }
+
+    // ------------------------------------------------------------------ page settings
+
+    /** Page size, margins, page border, page colour, watermark and page numbers, for the Page tab. */
+    private fun sectInfo(sect: Element?, background: Element?, pw: Int, ph: Int, mt: Int, mb: Int, ml: Int, mr: Int): JSONObject {
+        val o = JSONObject()
+        val pgSz = Ox.child(sect, "pgSz")
+        o.put("w", pw).put("h", ph).put("mt", mt).put("mb", mb).put("ml", ml).put("mr", mr)
+        o.put("orient", if (Ox.a(pgSz, "orient") == "landscape" || pw > ph) "landscape" else "portrait")
+        val pb = Ox.child(sect, "pgBorders")
+        val side = pb?.let { Ox.child(it, "top") ?: Ox.child(it, "left") ?: Ox.child(it, "bottom") ?: Ox.child(it, "right") }
+        val v = Ox.a(side)
+        if (side != null && v != null && v != "nil" && v != "none") {
+            val b = JSONObject()
+            b.put("style", v)
+            b.put("art", v !in PageDeco.LINE_BORDERS)
+            b.put("sz", Ox.a(side, "sz")?.toIntOrNull() ?: 4)
+            b.put("space", Ox.a(side, "space")?.toIntOrNull() ?: 24)
+            b.put("color", (Ox.a(side, "color") ?: "auto").let { if (it.length == 6) it.uppercase() else "auto" })
+            b.put("from", if (Ox.a(pb, "offsetFrom") == "page") "page" else "text")
+            o.put("border", b)
+        }
+        Ox.a(background, "color")?.takeIf { it.length == 6 && !it.equals("auto", true) }?.let { o.put("bg", it.uppercase()) }
+        // watermark and page numbers live in the headers / footers
+        var pn = false
+        // every header and footer of every section (the decoration is often in the first section's)
+        for (rel in pkg.rels(pkg.mainPart).filter { it.type == Ox.REL_HEADER || it.type == Ox.REL_FOOTER }) {
+            val part = pkg.resolve(pkg.mainPart, rel.target)
+            val xml = pkg.bytes(part)?.toString(Charsets.UTF_8) ?: continue
+            if (PageDeco.hasPageField(xml)) pn = true
+            if (!o.has("wm") && rel.type == Ox.REL_HEADER) {
+                val d = runCatching { Ox.parse(pkg.bytes(part)!!) }.getOrNull() ?: continue
+                PageDeco.findWatermark(d)?.let { o.put("wm", it) }
+            }
+        }
+        o.put("pnHas", pn)
+        return o
     }
 
     // ------------------------------------------------------------------ theme, styles, numbering
@@ -643,6 +682,7 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
         eff.borders?.let { xs.append(it).append("padding-inline:2pt;") }
 
         sb.append("<p")
+        if (display && PageDeco.isNumberPara(p)) attr(sb, "class", "hfpn")
         if (x >= 0) attr(sb, "data-x", x.toString())
         attr(sb, "data-st", st)
         attr(sb, "data-al", base["al"])
@@ -1002,6 +1042,8 @@ class DocxReader(private val pkg: DocxPackage, private val strings: WordStrings)
     }
 
     private fun pictPreview(c: Element): String {
+        // a watermark is drawn on every page by the editor, not as a box in the header
+        Ox.findAll(c, "shape", Ox.V).firstOrNull { PageDeco.isWatermarkShape(it) }?.let { return "" }
         val img = Ox.find(c, "imagedata", Ox.V)
         val rid = img?.getAttributeNS(Ox.R, "id")?.ifEmpty { null }
         val shape = Ox.find(c, "shape", Ox.V) ?: Ox.find(c, "rect", Ox.V)
